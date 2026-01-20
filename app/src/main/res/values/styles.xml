@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Safe theme for Android TV / Fire TV / DreamService -->
+    <style name="AppTheme" parent="android:Theme.DeviceDefault.NoActionBar">
+        <!-- empty -->
+    </style>
+
+</resources>

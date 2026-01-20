@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- App Name -->
+    <string name="app_name">Live Screensaver</string>
+
+    <!-- String helper for capitalize -->
+    <string name="string_capitalize">CAPITALIZE_ME</string>
+
+    <!-- Main URL Settings -->
+    <string name="pref_video_url_title">Stream URL</string>
+    <string name="pref_video_url_summary">Enter YouTube, Rutube, or HLS URL (.m3u8)</string>
+    <string name="pref_clear_url_title">Clear URL</string>
+    <string name="pref_clear_url_summary">Clear current URL (will use default stream if left empty)</string>
+    <string name="pref_disable_url_title">Disable This URL</string>
+
+    <!-- Weekly Schedule -->
+    <string name="pref_category_schedule">Weekly Schedule</string>
+    <string name="pref_schedule_enabled_title">Enable Weekly Schedule</string>
+    <string name="pref_schedule_enabled_summary">Use different URLs for each day of the week</string>
+    <string name="pref_schedule_random_title">Randomize URLs</string>
+    <string name="pref_schedule_random_summary">Pick random URL from weekly schedule instead of using day-specific URLs</string>
+
+    <string name="pref_url_monday_title">Monday Stream URL</string>
+    <string name="pref_clear_monday_title">Clear Monday URL</string>
+    <string name="pref_url_tuesday_title">Tuesday Stream URL</string>
+    <string name="pref_clear_tuesday_title">Clear Tuesday URL</string>
+    <string name="pref_url_wednesday_title">Wednesday Stream URL</string>
+    <string name="pref_clear_wednesday_title">Clear Wednesday URL</string>
+    <string name="pref_url_thursday_title">Thursday Stream URL</string>
+    <string name="pref_clear_thursday_title">Clear Thursday URL</string>
+    <string name="pref_url_friday_title">Friday Stream URL</string>
+    <string name="pref_clear_friday_title">Clear Friday URL</string>
+    <string name="pref_url_saturday_title">Saturday Stream URL</string>
+    <string name="pref_clear_saturday_title">Clear Saturday URL</string>
+    <string name="pref_url_sunday_title">Sunday Stream URL</string>
+    <string name="pref_clear_sunday_title">Clear Sunday URL</string>
+
+    <string name="pref_url_day_summary">Leave empty to use default URL</string>
+    <string name="pref_clear_schedule_title">Clear All Schedule URLs</string>
+    <string name="pref_clear_schedule_summary">Remove all weekly schedule URLs</string>
+
+    <!-- Playback Control -->
+    <string name="pref_category_playback">Playback Control</string>
+
+    <string name="pref_intro_enabled_title">Enable Intro Playback</string>
+    <string name="pref_intro_enabled_summary">Play beginning of video before jumping to random position</string>
+    <string name="pref_intro_duration_title">Intro Duration (seconds)</string>
+    <string name="pref_intro_duration_summary">How long to play before seeking (1–60 seconds)</string>
+
+    <string name="pref_skip_beginning_enabled_title">Skip Beginning</string>
+    <string name="pref_skip_beginning_enabled_summary">Skip the first X seconds of the video</string>
+    <string name="pref_skip_beginning_duration_title">Skip Duration (seconds)</string>
+    <string name="pref_skip_beginning_duration_summary">How many seconds to skip from start (0–600 seconds)</string>
+
+    <string name="pref_random_seek_enabled_title">Enable Random Seek</string>
+    <string name="pref_random_seek_enabled_summary">Jump to random position in video after intro</string>
+
+    <string name="pref_resume_enabled_title">Resume Playback</string>
+    <string name="pref_resume_enabled_summary">Continue from last position when screensaver restarts</string>
+
+    <string name="pref_preferred_resolution_title">Preferred Resolution</string>
+    <string name="pref_preferred_resolution_summary">Select video resolution quality</string>
+
+    <string name="pref_resume_behavior_title">Playback Behavior Reference</string>
+    <string name="pref_resume_behavior_info">
+How Resume interacts with Random Seek:
+
+• Resume OFF + Random Seek ON = Always start at random position
+• Resume ON + Random Seek OFF = Always resume from last position
+• Resume ON + Random Seek ON = Smart mode
+
+Resume will only work if:
+✓ Same URL is still set
+✓ Less than 5 minutes have passed
+✓ Resume feature is enabled
+    </string>
+
+    <string name="pref_video_scaling_title">Video Scaling</string>
+    <string name="pref_video_scaling_summary">How video fits on screen</string>
+
+    <string name="pref_speed_enabled_title">Enable Speed Control</string>
+    <string name="pref_speed_enabled_summary">Adjust playback speed for visual effects</string>
+    <string name="pref_playback_speed_title">Playback Speed</string>
+    <string name="pref_playback_speed_summary">Video playback speed</string>
+
+    <!-- Audio -->
+    <string name="pref_category_audio">Audio</string>
+    <string name="pref_audio_enabled_title">Enable Audio</string>
+    <string name="pref_audio_enabled_summary">Play audio through TV speakers</string>
+    <string name="pref_audio_volume_title">Volume Level</string>
+    <string name="pref_audio_volume_summary">Audio volume percentage</string>
+
+    <!-- Clock Overlay -->
+    <string name="pref_category_clock">Clock Overlay</string>
+    <string name="pref_clock_enabled_title">Enable Clock</string>
+    <string name="pref_clock_enabled_summary">Show current time on screen</string>
+    <string name="pref_clock_position_title">Clock Position</string>
+    <string name="pref_clock_position_summary">Corner placement for clock</string>
+    <string name="pref_clock_size_title">Clock Size</string>
+    <string name="pref_clock_size_summary">Text size for clock display</string>
+    <string name="pref_time_format_title">Time Format</string>
+    <string name="pref_time_format_summary">12-hour or 24-hour format</string>
+    <string name="pref_pixel_shift_title">Pixel Shift Interval</string>
+    <string name="pref_pixel_shift_summary">How often to move clock to prevent burn-in</string>
+
+    <!-- Visual Effects -->
+    <string name="pref_category_effects">Visual Effects</string>
+    <string name="pref_crossfade_enabled_title">Enable Crossfade</string>
+    <string name="pref_crossfade_enabled_summary">Smooth fade transitions between video loops</string>
+    <string name="pref_crossfade_duration_title">Fade Duration</string>
+    <string name="pref_crossfade_duration_summary">Length of fade transition</string>
+
+    <!-- Loading Animation -->
+    <string name="pref_category_loading">Loading Animation</string>
+    <string name="pref_loading_animation_title">Animation Style</string>
+    <string name="pref_loading_animation_summary">Choose animation while streams load</string>
+    <string name="pref_loading_text_title">Loading Text</string>
+    <string name="pref_loading_text_summary">Custom text to display during loading</string>
+
+    <!-- Debug -->
+    <string name="pref_category_debug">Debug Info</string>
+
+    <string name="pref_debug_enabled_title">Enable Debug Logging</string>
+    <string name="pref_debug_enabled_summary">
+Save timing and performance data to /sdcard/Download/playback_timing.txt
+    </string>
+
+    <string name="pref_stats_enabled_title">Enable Stats Overlay</string>
+    <string name="pref_stats_enabled_summary">Show playback statistics (for troubleshooting)</string>
+    <string name="pref_stats_position_title">Stats Position</string>
+    <string name="pref_stats_position_summary">Corner placement for stats display</string>
+    <string name="pref_stats_interval_title">Stats Update Interval</string>
+    <string name="pref_stats_interval_summary">How often to refresh statistics</string>
+
+    <!-- Toast Messages -->
+    <string name="toast_url_cleared">URL cleared. Default stream will be used if left empty</string>
+    <string name="toast_day_url_cleared">URL cleared</string>
+    <string name="toast_schedule_cleared">All schedule URLs cleared</string>
+    <string name="toast_rutube_extracting">🔄 Auto-extracting Rutube stream…</string>
+    <string name="toast_rutube_success">✅ Rutube stream extracted!</string>
+    <string name="toast_rutube_failed">❌ Failed to extract Rutube stream</string>
+    <string name="toast_rutube_error">❌ Error extracting Rutube stream</string>
+
+    <!-- Validation Messages -->
+    <string name="validation_intro_duration">Please enter a value between 1 and 60 seconds</string>
+    <string name="validation_skip_duration">Please enter a value between 0 and 600 seconds</string>
+
+</resources>
