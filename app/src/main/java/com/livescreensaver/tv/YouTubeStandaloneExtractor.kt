@@ -149,7 +149,6 @@ class YouTubeStandaloneExtractor(
                 put("context", contextJson)
                 put("contentCheckOk", true)
                 put("racyCheckOk", true)
-                put("params", "8AEB")  // Request all formats including manifests
             }
 
             val userAgent = if (clientName == "ANDROID") {
@@ -240,45 +239,8 @@ class YouTubeStandaloneExtractor(
                 return Pair(dashUrl, "DASH manifest")
             }
 
-            // Priority 3: Adaptive formats (video-only, highest quality)
-            val adaptiveFormats = streamingData.optJSONArray("adaptiveFormats")
-            if (adaptiveFormats != null && adaptiveFormats.length() > 0) {
-                debugLog("Checking ${adaptiveFormats.length()} adaptive formats...")
-                
-                var bestVideoUrl: String? = null
-                var bestHeight = 0
-                var bestQuality = ""
-
-                for (i in 0 until adaptiveFormats.length()) {
-                    val format = adaptiveFormats.getJSONObject(i)
-                    val mimeType = format.optString("mimeType", "")
-                    
-                    if (mimeType.startsWith("video/")) {
-                        val url = format.optString("url")
-                        val height = format.optInt("height", 0)
-                        val width = format.optInt("width", 0)
-                        val quality = format.optString("qualityLabel", "${width}x${height}")
-                        val bitrate = format.optInt("bitrate", 0)
-                        
-                        debugLog("  - Adaptive video: $quality @ ${bitrate/1000}kbps (${mimeType})")
-                        
-                        if (url.isNotEmpty() && height > bestHeight) {
-                            bestVideoUrl = url
-                            bestHeight = height
-                            bestQuality = quality
-                        }
-                    }
-                }
-
-                if (bestVideoUrl != null) {
-                    debugLog("✓ Selected best adaptive format: $bestQuality")
-                    debugLog("⚠️ Note: This is video-only, may need DASH manifest for audio")
-                    debugLog("Adaptive URL: ${bestVideoUrl.take(100)}...")
-                    return Pair(bestVideoUrl, "Adaptive $bestQuality (video-only)")
-                }
-            }
-
-            // Priority 4: Progressive formats (combined video+audio, typically max 720p)
+            // Priority 3: Progressive formats (combined video+audio, typically max 720p)
+            // These are the SAFEST option - guaranteed to have audio
             val formats = streamingData.optJSONArray("formats")
             if (formats != null && formats.length() > 0) {
                 debugLog("Checking ${formats.length()} progressive formats...")
