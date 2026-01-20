@@ -30,14 +30,15 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
         private const val RESUME_CACHE_PREFS = "resume_cache"
         private const val STATS_PREFS = "usage_stats"
         private const val BANDWIDTH_PREFS = "bandwidth_stats"
+        private const val EXTRACTION_TIMEOUT_MS = 25_000L // 25 second timeout for extraction
     }
-    
+
     private var prefCache: PreferenceCache? = null
     private var surfaceView: SurfaceView? = null
     private var containerLayout: FrameLayout? = null
     private var loadingOverlay: LoadingAnimationOverlay? = null
     private var loadingTextView: TextView? = null
-    
+
     private lateinit var streamExtractor: StreamExtractor
     private lateinit var preferences: SharedPreferences
     private lateinit var cachePrefs: SharedPreferences
@@ -51,8 +52,10 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
     private lateinit var usageStatsTracker: UsageStatsTracker
     private lateinit var bandwidthTracker: BandwidthTracker
     private lateinit var playerManager: PlayerManager
-    
+
+    // FIX #1: Use a scope that won't be cancelled when service stops
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val extractionScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val handler = Handler(Looper.getMainLooper())
 
     private var retryCount = 0
@@ -60,6 +63,7 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
     private var stallDetectionTime: Long = 0
     private var surfaceReady = false
     private var isRetrying = false
+    private var activeExtractionJob: Job? = null // Track extraction jobs
 
     private val stallCheckRunnable = object : Runnable {
         override fun run() {
@@ -67,7 +71,7 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
             handler.postDelayed(this, STALL_CHECK_INTERVAL_MS)
         }
     }
-    
+
     private val statsUpdateRunnable = object : Runnable {
         override fun run() {
             val cache = prefCache ?: return
@@ -103,7 +107,7 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
             isInteractive = false
             isFullscreen = true
             isScreenBright = true
-            
+
             FileLogger.enable(this)
             FileLogger.log("🚀 LiveScreensaverService starting...")
 
@@ -112,19 +116,19 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
             resumeCache = getSharedPreferences(RESUME_CACHE_PREFS, MODE_PRIVATE)
             statsPrefs = getSharedPreferences(STATS_PREFS, MODE_PRIVATE)
             bandwidthPrefs = getSharedPreferences(BANDWIDTH_PREFS, MODE_PRIVATE)
-            
+
             preferenceManager = AppPreferenceManager(preferences)
             scheduleManager = ScheduleManager(preferences, DEFAULT_VIDEO_URL)
             resumeManager = ResumeManager(resumeCache)
             usageStatsTracker = UsageStatsTracker(statsPrefs)
             bandwidthTracker = BandwidthTracker(bandwidthPrefs)
-            
+
             prefCache = preferenceManager.loadPreferenceCache()
             streamExtractor = StreamExtractor(this, cachePrefs)
-            
+
             refreshUrlIfNeeded()
             setupSurface()
-            
+
             Log.d(TAG, "✅ Service initialized successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Fatal startup error - falling back to safe state", e)
@@ -146,9 +150,9 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
             Log.d(TAG, "No cached URL - will extract on first playback")
             return
         }
-        
+
         val currentMainUrl = preferences.getString(PREF_VIDEO_URL, DEFAULT_VIDEO_URL) ?: DEFAULT_VIDEO_URL
-        
+
         if (currentMainUrl.contains(".m3u8")) {
             Log.d(TAG, "✅ Direct HLS URL - no refresh needed")
             return
@@ -156,11 +160,14 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
 
         Log.d(TAG, "🔄 Refreshing $urlType URL on startup...")
 
-        serviceScope.launch {
+        // FIX #2: Use extractionScope for background extraction
+        extractionScope.launch {
             try {
                 when (urlType) {
                     "rutube" -> {
-                        val refreshedUrl = streamExtractor.extractRutubeUrl(originalUrl)
+                        val refreshedUrl = withTimeout(EXTRACTION_TIMEOUT_MS) {
+                            streamExtractor.extractRutubeUrl(originalUrl)
+                        }
                         if (refreshedUrl != null) {
                             preferences.edit().putString(PREF_VIDEO_URL, refreshedUrl).apply()
                             Log.d(TAG, "✅ Rutube URL refreshed")
@@ -175,6 +182,8 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
                         Log.d(TAG, "Unknown URL type: $urlType")
                     }
                 }
+            } catch (e: TimeoutCancellationException) {
+                Log.e(TAG, "URL refresh timed out - will try cached/original URL")
             } catch (e: Exception) {
                 Log.e(TAG, "URL refresh error - will try cached/original URL", e)
             }
@@ -183,31 +192,31 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
 
     private fun setupSurface() {
         containerLayout = FrameLayout(this)
-        
+
         surfaceView = SurfaceView(this).apply {
             holder.addCallback(this@LiveScreensaverService)
         }
-        
+
         containerLayout?.addView(surfaceView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         ))
-        
+
         containerLayout?.let { container ->
             uiOverlayManager = UIOverlayManager(this, container, handler)
-            
+
             prefCache?.let { cache ->
                 if (cache.clockEnabled) {
                     uiOverlayManager.setupClock(cache)
                 }
-                
+
                 if (cache.statsEnabled) {
                     uiOverlayManager.setupStats(cache)
                     handler.postDelayed(statsUpdateRunnable, cache.statsInterval)
                 }
             }
         }
-        
+
         setContentView(containerLayout)
     }
 
@@ -226,13 +235,13 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
 
     private fun initializePlayer() {
         FileLogger.log("🎮 initializePlayer() called - surfaceReady=$surfaceReady, playerExists=${::playerManager.isInitialized}")
-        
+
         if (!surfaceReady || ::playerManager.isInitialized) return
 
         try {
             FileLogger.log("⏳ Starting player initialization...")
             showLoadingAnimation()
-            
+
             val videoUrl = getVideoUrl()
             FileLogger.log("📺 Video URL to load: $videoUrl")
             val cache = prefCache ?: return
@@ -260,14 +269,14 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
         if (!playerManager.hasProcessedPlayback) {
             stallDetectionTime = 0
             retryCount = 0
-            
+
             val cache = prefCache ?: return
             val player = playerManager.getPlayer() ?: return
             val duration = player.duration
             val skipDuration = if (cache.skipBeginningEnabled) cache.skipBeginningDuration else 0L
-            
+
             val resumedPosition = resumeManager.attemptResume(cache, currentSourceUrl, duration, skipDuration)
-            
+
             playerManager.processPlayback(cache, duration, resumedPosition) { position ->
                 player.seekTo(position)
             }
@@ -292,40 +301,60 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
         FileLogger.log("🔄 loadStream() called with: $sourceUrl", TAG)
         Log.d(TAG, "🔄 Loading stream: $sourceUrl")
 
-        serviceScope.launch {
+        // FIX #3: Cancel any existing extraction job
+        activeExtractionJob?.cancel()
+
+        // FIX #4: Use extractionScope and add timeout
+        activeExtractionJob = extractionScope.launch {
             try {
                 FileLogger.log("🚀 Coroutine started for stream loading", TAG)
-                
-                val streamUrl = if (streamExtractor.needsExtraction(sourceUrl)) {
-                    FileLogger.log("✅ Needs extraction: true", TAG)
-                    val cachedUrl = streamExtractor.getCachedUrl()
-                    if (cachedUrl != null && cachedUrl.isNotEmpty()) {
-                        FileLogger.log("✅ Trying cached extracted URL first: $cachedUrl", TAG)
-                        Log.d(TAG, "✅ Trying cached extracted URL first")
-                        cachedUrl
+
+                val streamUrl = withTimeout(EXTRACTION_TIMEOUT_MS) {
+                    if (streamExtractor.needsExtraction(sourceUrl)) {
+                        FileLogger.log("✅ Needs extraction: true", TAG)
+                        val cachedUrl = streamExtractor.getCachedUrl()
+                        if (cachedUrl != null && cachedUrl.isNotEmpty()) {
+                            FileLogger.log("✅ Trying cached extracted URL first: $cachedUrl", TAG)
+                            Log.d(TAG, "✅ Trying cached extracted URL first")
+                            cachedUrl
+                        } else {
+                            FileLogger.log("⚠️ No cached URL, extracting...", TAG)
+                            streamExtractor.extractStreamUrl(sourceUrl, false, CACHE_DURATION)
+                                ?: streamExtractor.extractStreamUrl(sourceUrl, true, CACHE_DURATION)
+                        }
                     } else {
-                        FileLogger.log("⚠️ No cached URL, extracting...", TAG)
-                        streamExtractor.extractStreamUrl(sourceUrl, false, CACHE_DURATION)
-                            ?: streamExtractor.extractStreamUrl(sourceUrl, true, CACHE_DURATION)
+                        FileLogger.log("✅ Direct URL, no extraction needed", TAG)
+                        sourceUrl
                     }
-                } else {
-                    FileLogger.log("✅ Direct URL, no extraction needed", TAG)
-                    sourceUrl
                 }
 
-                if (streamUrl != null) {
-                    FileLogger.log("✅ Stream URL resolved: $streamUrl", TAG)
-                    Log.d(TAG, "✅ Stream URL resolved successfully")
-                    playStream(streamUrl)
-                } else {
-                    FileLogger.log("❌ Stream URL is null - using default", TAG)
-                    Log.e(TAG, "Failed to load stream - using default")
+                // FIX #5: Switch back to main thread for UI updates
+                withContext(Dispatchers.Main) {
+                    if (streamUrl != null) {
+                        FileLogger.log("✅ Stream URL resolved: $streamUrl", TAG)
+                        Log.d(TAG, "✅ Stream URL resolved successfully")
+                        playStream(streamUrl)
+                    } else {
+                        FileLogger.log("❌ Stream URL is null - using default", TAG)
+                        Log.e(TAG, "Failed to load stream - using default")
+                        playStream(DEFAULT_VIDEO_URL)
+                    }
+                }
+            } catch (e: TimeoutCancellationException) {
+                FileLogger.logError("Stream extraction timed out after ${EXTRACTION_TIMEOUT_MS}ms", e, TAG)
+                Log.e(TAG, "Stream extraction timed out", e)
+                withContext(Dispatchers.Main) {
                     playStream(DEFAULT_VIDEO_URL)
                 }
+            } catch (e: CancellationException) {
+                FileLogger.log("⚠️ Stream extraction cancelled (service stopped)", TAG)
+                // Don't log as error - this is expected when service stops
             } catch (e: Exception) {
                 FileLogger.logError("Stream loading error", e, TAG)
                 Log.e(TAG, "Stream loading error", e)
-                playStream(DEFAULT_VIDEO_URL)
+                withContext(Dispatchers.Main) {
+                    playStream(DEFAULT_VIDEO_URL)
+                }
             }
         }
     }
@@ -346,24 +375,28 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
 
         isRetrying = true
         retryCount++
-        
+
         Log.w(TAG, "⚠️ Playback failed - attempt $retryCount of $MAX_RETRIES")
-        
+
         if (retryCount == 1) {
             Log.w(TAG, "🔄 Attempting URL refresh...")
-            
-            serviceScope.launch {
+
+            extractionScope.launch {
                 try {
                     val originalUrl = streamExtractor.getCachedOriginalUrl()
                     val urlType = streamExtractor.getCachedUrlType()
-                    
+
                     if (originalUrl != null && urlType == "rutube") {
-                        val refreshedUrl = streamExtractor.extractRutubeUrl(originalUrl)
+                        val refreshedUrl = withTimeout(EXTRACTION_TIMEOUT_MS) {
+                            streamExtractor.extractRutubeUrl(originalUrl)
+                        }
                         if (refreshedUrl != null) {
                             currentSourceUrl = refreshedUrl
                             Log.d(TAG, "✅ URL refreshed after playback failure")
                         }
                     }
+                } catch (e: TimeoutCancellationException) {
+                    Log.e(TAG, "URL refresh timed out on failure")
                 } catch (e: Exception) {
                     Log.e(TAG, "URL refresh on failure error", e)
                 }
@@ -391,19 +424,19 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
                 "wave" -> LoadingAnimationOverlay.AnimationType.WAVE
                 else -> LoadingAnimationOverlay.AnimationType.SPINNING_DOTS
             }
-            
+
             val customText = preferenceManager.getLoadingAnimationText()
-            
+
             loadingOverlay = LoadingAnimationOverlay(this)
             loadingTextView = loadingOverlay?.createLoadingView(animationType, customText)
-            
+
             val params = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             ).apply {
                 gravity = Gravity.CENTER
             }
-            
+
             containerLayout?.addView(loadingTextView, params)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to setup loading animation", e)
@@ -425,7 +458,7 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        
+
         when (level) {
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE -> {
                 Log.w(TAG, "🔶 Moderate memory pressure detected")
@@ -472,7 +505,10 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         try {
+            // FIX #6: Only cancel UI scope, not extraction scope
             serviceScope.cancel()
+            // Let extraction complete in background
+            // extractionScope will be cleaned up by the system
             releasePlayer()
             if (::uiOverlayManager.isInitialized) {
                 uiOverlayManager.cleanup()
