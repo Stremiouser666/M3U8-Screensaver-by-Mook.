@@ -29,6 +29,7 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
         private const val PREFS_NAME = "stream_cache_prefs"
         private const val RESUME_CACHE_PREFS = "resume_cache"
         private const val STATS_PREFS = "usage_stats"
+        private const val BANDWIDTH_PREFS = "bandwidth_stats"
     }
     
     private var prefCache: PreferenceCache? = null
@@ -42,11 +43,13 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
     private lateinit var cachePrefs: SharedPreferences
     private lateinit var resumeCache: SharedPreferences
     private lateinit var statsPrefs: SharedPreferences
+    private lateinit var bandwidthPrefs: SharedPreferences
     private lateinit var preferenceManager: AppPreferenceManager
     private lateinit var scheduleManager: ScheduleManager
     private lateinit var resumeManager: ResumeManager
     private lateinit var uiOverlayManager: UIOverlayManager
     private lateinit var usageStatsTracker: UsageStatsTracker
+    private lateinit var bandwidthTracker: BandwidthTracker
     private lateinit var playerManager: PlayerManager
     
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -69,8 +72,10 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
         override fun run() {
             val cache = prefCache ?: return
             val usageStats = usageStatsTracker.getUsageStats()
-            uiOverlayManager.updateStats(playerManager.getPlayer(), usageStats)
+            val bandwidthStats = bandwidthTracker.getBandwidthStats()
+            uiOverlayManager.updateStats(playerManager.getPlayer(), usageStats, bandwidthStats)
             usageStatsTracker.trackPlaybackUsage()
+            bandwidthTracker.trackBandwidth(playerManager.getPlayer())
             handler.postDelayed(this, cache.statsInterval)
         }
     }
@@ -103,11 +108,13 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
             cachePrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             resumeCache = getSharedPreferences(RESUME_CACHE_PREFS, MODE_PRIVATE)
             statsPrefs = getSharedPreferences(STATS_PREFS, MODE_PRIVATE)
+            bandwidthPrefs = getSharedPreferences(BANDWIDTH_PREFS, MODE_PRIVATE)
             
             preferenceManager = AppPreferenceManager(preferences)
             scheduleManager = ScheduleManager(preferences, DEFAULT_VIDEO_URL)
             resumeManager = ResumeManager(resumeCache)
             usageStatsTracker = UsageStatsTracker(statsPrefs)
+            bandwidthTracker = BandwidthTracker(bandwidthPrefs)
             
             prefCache = preferenceManager.loadPreferenceCache()
             streamExtractor = StreamExtractor(this, cachePrefs)
@@ -424,6 +431,9 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
             hideLoadingAnimation()
             if (::playerManager.isInitialized) {
                 resumeManager.savePlaybackPosition(playerManager.getPlayer(), currentSourceUrl)
+            }
+            if (::bandwidthTracker.isInitialized) {
+                bandwidthTracker.saveDailyBandwidth()
             }
             handler.removeCallbacksAndMessages(null)
             if (::playerManager.isInitialized) {
