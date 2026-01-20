@@ -1,66 +1,179 @@
 package com.livescreensaver.tv
 
-import android.content.SharedPreferences
+import android.content.Context
+import android.net.Uri
+import android.util.Log
+import android.view.SurfaceView
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
-data class PreferenceCache(
-    val audioEnabled: Boolean,
-    val audioVolume: Int,
-    val videoScalingMode: String,
-    val speedEnabled: Boolean,
-    val playbackSpeed: Float,
-    val introEnabled: Boolean,
-    val introDuration: Long,
-    val skipBeginningEnabled: Boolean,
-    val skipBeginningDuration: Long,
-    val randomSeekEnabled: Boolean,
-    val scheduleEnabled: Boolean,
-    val scheduleRandomMode: Boolean,
-    val clockEnabled: Boolean,
-    val clockPosition: String,
-    val clockSize: Int,
-    val timeFormat: String,
-    val pixelShiftInterval: Long,
-    val statsEnabled: Boolean,
-    val statsPosition: String,
-    val statsInterval: Long,
-    val resumeEnabled: Boolean,
-    val preferredResolution: String
-)
+class PlayerManager(
+    private val context: Context,
+    private val surfaceView: SurfaceView?,
+    private val onReady: () -> Unit,
+    private val onError: () -> Unit,
+    private val onPlayingChanged: (Boolean) -> Unit
+) {
+    companion object {
+        private const val TAG = "PlayerManager"
+        private val secureRandom = java.security.SecureRandom()
+    }
 
-class AppPreferenceManager(private val preferences: SharedPreferences) {
-    
-    fun loadPreferenceCache(): PreferenceCache {
-        return PreferenceCache(
-            audioEnabled = preferences.getBoolean("audio_enabled", false),
-            audioVolume = preferences.getString("audio_volume", "50")?.toIntOrNull() ?: 50,
-            videoScalingMode = preferences.getString("video_scaling_mode", "scale_to_fit") ?: "scale_to_fit",
-            speedEnabled = preferences.getBoolean("speed_enabled", false),
-            playbackSpeed = preferences.getString("playback_speed", "1.0")?.toFloatOrNull() ?: 1.0f,
-            introEnabled = preferences.getBoolean("intro_enabled", true),
-            introDuration = (preferences.getString("intro_duration", "7")?.toIntOrNull() ?: 7) * 1000L,
-            skipBeginningEnabled = preferences.getBoolean("skip_beginning_enabled", false),
-            skipBeginningDuration = (preferences.getString("skip_beginning_duration", "0")?.toIntOrNull() ?: 0) * 1000L,
-            randomSeekEnabled = preferences.getBoolean("random_seek_enabled", true),
-            scheduleEnabled = preferences.getBoolean("schedule_enabled", false),
-            scheduleRandomMode = preferences.getBoolean("schedule_random_mode", false),
-            clockEnabled = preferences.getBoolean("clock_enabled", false),
-            clockPosition = preferences.getString("clock_position", "top_right") ?: "top_right",
-            clockSize = preferences.getString("clock_size", "64")?.toIntOrNull() ?: 64,
-            timeFormat = preferences.getString("time_format", "12h") ?: "12h",
-            pixelShiftInterval = preferences.getString("pixel_shift_interval", "300000")?.toLongOrNull() ?: 300000,
-            statsEnabled = preferences.getBoolean("stats_enabled", false),
-            statsPosition = preferences.getString("stats_position", "top_left") ?: "top_left",
-            statsInterval = preferences.getString("stats_interval", "1000")?.toLongOrNull() ?: 1000,
-            resumeEnabled = preferences.getBoolean("resume_enabled", false),
-            preferredResolution = preferences.getString("preferred_resolution", "auto") ?: "auto"
-        )
+    private var player: ExoPlayer? = null
+    var hasProcessedPlayback = false
+        private set
+
+    fun initializePlayer(cache: PreferenceCache): ExoPlayer {
+        val trackSelector = DefaultTrackSelector(context)
+        val preferredResolution = cache.preferredResolution
+
+        if (preferredResolution != "auto") {
+            val height = preferredResolution.toIntOrNull() ?: 1080
+            trackSelector.setParameters(
+                trackSelector.buildUponParameters()
+                    .setMinVideoSize(0, height)
+                    .setMaxVideoSize(Int.MAX_VALUE, height)
+                    .setForceHighestSupportedBitrate(true)
+                    .setAllowVideoMixedMimeTypeAdaptiveness(false)
+                    .setAllowVideoNonSeamlessAdaptiveness(false)
+                    .setAllowAudioMixedMimeTypeAdaptiveness(false)
+                    .setAllowAudioNonSeamlessAdaptiveness(false)
+            )
+        }
+
+        player = ExoPlayer.Builder(context)
+            .setTrackSelector(trackSelector)
+            .build()
+            .apply {
+                volume = if (cache.audioEnabled) (cache.audioVolume / 100f) else 0f
+                repeatMode = Player.REPEAT_MODE_ONE
+                setVideoSurfaceView(surfaceView)
+                
+                videoScalingMode = when (cache.videoScalingMode) {
+                    "scale_to_fill" -> C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+                    "default" -> C.VIDEO_SCALING_MODE_DEFAULT
+                    else -> C.VIDEO_SCALING_MODE_SCALE_TO_FIT
+                }
+                
+                if (cache.speedEnabled) {
+                    setPlaybackSpeed(cache.playbackSpeed)
+                }
+
+                addListener(PlayerEventListener())
+            }
+
+        return player!!
     }
-    
-    fun getLoadingAnimationType(): String {
-        return preferences.getString("loading_animation_type", "spinning_dots") ?: "spinning_dots"
+
+    fun playStream(streamUrl: String) {
+        val mediaItem = MediaItem.fromUri(Uri.parse(streamUrl))
+        player?.apply {
+            hasProcessedPlayback = false
+            setMediaItem(mediaItem)
+            prepare()
+            play()
+        }
     }
-    
-    fun getLoadingAnimationText(): String {
-        return preferences.getString("loading_animation_text", "Loading") ?: "Loading"
+
+    fun processPlayback(
+        cache: PreferenceCache,
+        duration: Long,
+        resumePosition: Long?,
+        onSeek: (Long) -> Unit
+    ) {
+        if (hasProcessedPlayback) return
+        hasProcessedPlayback = true
+
+        val skipDuration = if (cache.skipBeginningEnabled) cache.skipBeginningDuration else 0L
+        
+        if (resumePosition != null) {
+            onSeek(resumePosition)
+            Log.d(TAG, "▶️ Resumed playback from ${resumePosition / 1000}s")
+            return
+        }
+        
+        if (skipDuration > 0) {
+            onSeek(skipDuration)
+            Log.d(TAG, "Skipped to ${skipDuration / 1000}s")
+        }
+        
+        if (cache.introEnabled && cache.introDuration > 0) {
+            val randomDelay = secureRandom.nextInt(3000).toLong()
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                if (player != null && player!!.playbackState == Player.STATE_READY && cache.randomSeekEnabled) {
+                    val randomPos = calculateRandomPosition(duration, skipDuration)
+                    onSeek(randomPos)
+                    Log.d(TAG, "🎯 After intro, seeking to ${randomPos / 1000}s")
+                }
+            }, cache.introDuration + randomDelay)
+        } else if (cache.randomSeekEnabled) {
+            val randomDelay = secureRandom.nextInt(3000).toLong()
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                if (player != null && player!!.playbackState == Player.STATE_READY) {
+                    val randomPos = calculateRandomPosition(duration, skipDuration)
+                    onSeek(randomPos)
+                    Log.d(TAG, "🎯 Seeking to ${randomPos / 1000}s")
+                }
+            }, randomDelay)
+        }
+    }
+
+    private fun calculateRandomPosition(duration: Long, skipOffset: Long): Long {
+        return if (duration != C.TIME_UNSET && duration > 0) {
+            val usableRange = duration - skipOffset
+            if (usableRange <= 0) skipOffset else skipOffset + (secureRandom.nextDouble() * usableRange).toLong()
+        } else {
+            val maxRandomMs = 180 * 60 * 1000L
+            skipOffset + (secureRandom.nextDouble() * maxRandomMs).toLong()
+        }
+    }
+
+    fun stop() {
+        player?.stop()
+        player?.clearMediaItems()
+    }
+
+    fun resetProcessedFlag() {
+        hasProcessedPlayback = false
+    }
+
+    fun release() {
+        player?.release()
+        player = null
+    }
+
+    fun getPlayer(): ExoPlayer? = player
+
+    private inner class PlayerEventListener : Player.Listener {
+        override fun onPlaybackStateChanged(state: Int) {
+            val stateName = when (state) {
+                Player.STATE_IDLE -> "IDLE"
+                Player.STATE_BUFFERING -> "BUFFERING"
+                Player.STATE_READY -> "READY"
+                Player.STATE_ENDED -> "ENDED"
+                else -> "UNKNOWN"
+            }
+            
+            Log.d(TAG, "🎬 Playback state: $stateName")
+            
+            if (state == Player.STATE_READY) {
+                onReady()
+            }
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            Log.e(TAG, "Playback error", error)
+            onError()
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            onPlayingChanged(isPlaying)
+        }
     }
 }
