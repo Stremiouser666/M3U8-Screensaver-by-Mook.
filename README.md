@@ -1,4 +1,4 @@
-# Live Screensaver for Android TV
+# M3U8 Screensaver for Android TV
 
 A enhanced screensaver application for Android TV that transforms your device into a dynamic video display. Stream live content, schedule different videos by day of the week, customize playback behavior.
 
