@@ -212,6 +212,7 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
+        FileLogger.log("🖥️ Surface created - surfaceReady = true")
         surfaceReady = true
         initializePlayer()
     }
@@ -224,12 +225,16 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
     }
 
     private fun initializePlayer() {
+        FileLogger.log("🎮 initializePlayer() called - surfaceReady=$surfaceReady, playerExists=${::playerManager.isInitialized}")
+        
         if (!surfaceReady || ::playerManager.isInitialized) return
 
         try {
+            FileLogger.log("⏳ Starting player initialization...")
             showLoadingAnimation()
             
             val videoUrl = getVideoUrl()
+            FileLogger.log("📺 Video URL to load: $videoUrl")
             val cache = prefCache ?: return
 
             playerManager = PlayerManager(
@@ -284,6 +289,7 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
 
     private fun loadStream(sourceUrl: String) {
         currentSourceUrl = sourceUrl
+        FileLogger.log("🔄 loadStream() called with: $sourceUrl", TAG)
         Log.d(TAG, "🔄 Loading stream: $sourceUrl")
 
         serviceScope.launch {
