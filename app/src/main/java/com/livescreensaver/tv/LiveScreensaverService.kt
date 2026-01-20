@@ -294,27 +294,36 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
 
         serviceScope.launch {
             try {
+                FileLogger.log("🚀 Coroutine started for stream loading", TAG)
+                
                 val streamUrl = if (streamExtractor.needsExtraction(sourceUrl)) {
+                    FileLogger.log("✅ Needs extraction: true", TAG)
                     val cachedUrl = streamExtractor.getCachedUrl()
                     if (cachedUrl != null && cachedUrl.isNotEmpty()) {
+                        FileLogger.log("✅ Trying cached extracted URL first: $cachedUrl", TAG)
                         Log.d(TAG, "✅ Trying cached extracted URL first")
                         cachedUrl
                     } else {
+                        FileLogger.log("⚠️ No cached URL, extracting...", TAG)
                         streamExtractor.extractStreamUrl(sourceUrl, false, CACHE_DURATION)
                             ?: streamExtractor.extractStreamUrl(sourceUrl, true, CACHE_DURATION)
                     }
                 } else {
+                    FileLogger.log("✅ Direct URL, no extraction needed", TAG)
                     sourceUrl
                 }
 
                 if (streamUrl != null) {
+                    FileLogger.log("✅ Stream URL resolved: $streamUrl", TAG)
                     Log.d(TAG, "✅ Stream URL resolved successfully")
                     playStream(streamUrl)
                 } else {
+                    FileLogger.log("❌ Stream URL is null - using default", TAG)
                     Log.e(TAG, "Failed to load stream - using default")
                     playStream(DEFAULT_VIDEO_URL)
                 }
             } catch (e: Exception) {
+                FileLogger.logError("Stream loading error", e, TAG)
                 Log.e(TAG, "Stream loading error", e)
                 playStream(DEFAULT_VIDEO_URL)
             }
