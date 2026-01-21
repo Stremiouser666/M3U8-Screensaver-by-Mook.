@@ -316,8 +316,14 @@ class YouTubeStandaloneExtractor(
                 return Pair(dashUrl, "DASH manifest")
             }
 
-            // Priority 3: Progressive formats (combined video+audio, typically max 720p)
-            // These are the SAFEST option - guaranteed to have audio
+            // Priority 3: Build custom DASH manifest from adaptive formats (1080p capable)
+            debugLog("--- Attempting to build custom DASH manifest ---")
+            val dashResult = buildCustomDashManifest(streamingData)
+            if (dashResult != null) {
+                return dashResult
+            }
+
+            // Priority 4: Progressive formats (combined video+audio, fallback to 360p-720p)
             val formats = streamingData.optJSONArray("formats")
             if (formats != null && formats.length() > 0) {
                 debugLog("Checking ${formats.length()} progressive formats...")
@@ -336,7 +342,6 @@ class YouTubeStandaloneExtractor(
                         val cipher = format.getString("signatureCipher")
                         val videoId = extractVideoId(streamingData.toString()) ?: ""
                         
-                        // This will be null in first implementation, but framework is ready
                         url = kotlinx.coroutines.runBlocking {
                             signatureDecryptor.decryptSignature(cipher, videoId)
                         } ?: ""
@@ -357,9 +362,7 @@ class YouTubeStandaloneExtractor(
                     
                     debugLog("  - Progressive: $quality (${mimeType}) [URL:${url.isNotEmpty()}] [Audio:$hasAudio]")
 
-                    // ONLY accept formats with audio
                     if (url.isNotEmpty() && hasAudio && mimeType.contains("video")) {
-                        // Take ANY format with audio, preferring higher resolution
                         if (bestUrl == null || height > bestHeight) {
                             bestUrl = url
                             bestHeight = height
@@ -376,14 +379,6 @@ class YouTubeStandaloneExtractor(
                 } else {
                     debugLog("⚠️ No progressive format with audio found")
                 }
-            }
-
-            // Priority 4: Build custom DASH manifest from adaptive formats
-            // This allows us to get 1080p+ quality by merging video-only and audio-only streams
-            debugLog("--- Attempting to build custom DASH manifest ---")
-            val dashResult = buildCustomDashManifest(streamingData)
-            if (dashResult != null) {
-                return dashResult
             }
 
             debugLog("❌ No playable formats found in response")
