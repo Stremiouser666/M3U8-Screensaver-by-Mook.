@@ -14,7 +14,9 @@ class PlayerManager(
     private val context: Context,
     private val eventListener: PlayerEventListener
 ) {
-    private var exoPlayer: ExoPlayer? = null
+    private var videoPlayer: ExoPlayer? = null
+    private var audioPlayer: ExoPlayer? = null
+    private var isSyncing = false
 
     interface PlayerEventListener {
         fun onPlaybackStateChanged(state: Int)
@@ -24,21 +26,24 @@ class PlayerManager(
     fun initialize(surface: Surface) {
         release()
 
-        // Configure load control for faster startup
+        // Configure load control for instant startup
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                10000,  // min buffer before playback starts (10s)
+                5000,   // min buffer before playback starts (5s)
                 30000,  // max buffer (30s)
-                2000,   // buffer for playback to start (2s)
-                5000    // buffer for playback to resume after rebuffer (5s)
+                500,    // buffer for playback to start (0.5s) - INSTANT START
+                2000    // buffer for playback to resume (2s)
             )
+            .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
-        exoPlayer = ExoPlayer.Builder(context)
+        // Video player (with surface)
+        videoPlayer = ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
             .build()
             .apply {
                 setVideoSurface(surface)
+                volume = 0f  // Video player is muted
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         eventListener.onPlaybackStateChanged(playbackState)
@@ -49,17 +54,20 @@ class PlayerManager(
                     }
                 })
             }
+
+        // Audio player (no surface, audio only)
+        audioPlayer = ExoPlayer.Builder(context)
+            .setLoadControl(loadControl)
+            .build()
     }
 
     /**
      * Play a stream URL
      * Supports:
      * - Regular URLs (HLS, DASH, MP4)
-     * - Dual URLs in format: "video_url|||audio_url" for merging
+     * - Dual URLs in format: "video_url|||audio_url" for parallel playback
      */
     fun playStream(url: String) {
-        val player = exoPlayer ?: return
-
         try {
             // Check if this is a dual-stream URL (video|||audio)
             if (url.contains("|||")) {
@@ -68,21 +76,24 @@ class PlayerManager(
                     val videoUrl = parts[0]
                     val audioUrl = parts[1]
 
-                    FileLogger.log("🎬 Loading dual-stream (video + audio)", "PlayerManager")
+                    FileLogger.log("🎬 Loading dual-stream PARALLEL (video + audio)", "PlayerManager")
                     FileLogger.log("📹 Video: ${videoUrl.take(100)}...", "PlayerManager")
                     FileLogger.log("🔊 Audio: ${audioUrl.take(100)}...", "PlayerManager")
 
-                    playDualStream(videoUrl, audioUrl)
+                    playDualStreamParallel(videoUrl, audioUrl)
                     return
                 }
             }
 
-            // Single URL - play normally
+            // Single URL - play on video player only
             FileLogger.log("🎬 Loading single stream: ${url.take(100)}...", "PlayerManager")
             val mediaItem = MediaItem.fromUri(url)
-            player.setMediaItem(mediaItem)
-            player.prepare()
-            player.play()
+            videoPlayer?.apply {
+                volume = 1f  // Enable audio for single stream
+                setMediaItem(mediaItem)
+                prepare()
+                play()
+            }
 
         } catch (e: Exception) {
             FileLogger.log("❌ Error loading stream: ${e.message}", "PlayerManager")
@@ -91,67 +102,71 @@ class PlayerManager(
     }
 
     /**
-     * Play separate video and audio streams merged together
+     * Play video and audio streams in parallel (no merging)
+     * Video player shows video (muted), audio player plays audio
      */
-    private fun playDualStream(videoUrl: String, audioUrl: String) {
-        val player = exoPlayer ?: return
-
+    private fun playDualStreamParallel(videoUrl: String, audioUrl: String) {
         try {
-            val dataSourceFactory = DefaultHttpDataSource.Factory()
-
-            // Create video source
+            // Load video (muted)
             val videoItem = MediaItem.fromUri(videoUrl)
-            val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                .createMediaSource(videoItem)
+            videoPlayer?.apply {
+                volume = 0f
+                setMediaItem(videoItem)
+                prepare()
+            }
 
-            // Create audio source
+            // Load audio
             val audioItem = MediaItem.fromUri(audioUrl)
-            val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                .createMediaSource(audioItem)
+            audioPlayer?.apply {
+                setMediaItem(audioItem)
+                prepare()
+            }
 
-            // Merge them
-            val mergedSource = MergingMediaSource(videoSource, audioSource)
+            FileLogger.log("✅ Starting parallel playback", "PlayerManager")
 
-            FileLogger.log("✅ Created merged media source", "PlayerManager")
-
-            player.setMediaSource(mergedSource)
-            player.prepare()
-            player.play()
+            // Start both simultaneously
+            videoPlayer?.play()
+            audioPlayer?.play()
 
         } catch (e: Exception) {
-            FileLogger.log("❌ Error merging streams: ${e.message}", "PlayerManager")
+            FileLogger.log("❌ Error in parallel playback: ${e.message}", "PlayerManager")
             eventListener.onPlayerError(e)
         }
     }
 
     fun pause() {
-        exoPlayer?.pause()
+        videoPlayer?.pause()
+        audioPlayer?.pause()
     }
 
     fun resume() {
-        exoPlayer?.play()
+        videoPlayer?.play()
+        audioPlayer?.play()
     }
 
     fun seekTo(positionMs: Long) {
-        exoPlayer?.seekTo(positionMs)
+        videoPlayer?.seekTo(positionMs)
+        audioPlayer?.seekTo(positionMs)
     }
 
     fun getCurrentPosition(): Long {
-        return exoPlayer?.currentPosition ?: 0
+        return videoPlayer?.currentPosition ?: 0
     }
 
     fun getDuration(): Long {
-        return exoPlayer?.duration ?: 0
+        return videoPlayer?.duration ?: 0
     }
 
     fun release() {
-        exoPlayer?.release()
-        exoPlayer = null
+        videoPlayer?.release()
+        audioPlayer?.release()
+        videoPlayer = null
+        audioPlayer = null
     }
 
     fun setVolume(volume: Float) {
-        exoPlayer?.volume = volume
+        audioPlayer?.volume = volume
     }
 
-    fun getPlayer(): ExoPlayer? = exoPlayer
+    fun getPlayer(): ExoPlayer? = videoPlayer
 }
