@@ -81,36 +81,39 @@ class YouTubeStandaloneExtractor(
 
             debugLog("✓ Extracted video ID: $videoId")
 
-            // Try WEB client FIRST (better quality options including DASH/HLS)
-            debugLog(">>> Attempting Method 1: Web InnerTube API")
-            val webResult = tryInnerTubeExtraction(
+            // Try TV/Android SDK-less client FIRST (bypasses SABR, provides direct URLs)
+            debugLog(">>> Attempting Method 1: TV Client (Android SDK-less)")
+            val tvResult = tryInnerTubeExtraction(
                 videoId,
-                clientName = "WEB",
-                clientVersion = "2.20240304.00.00",
-                apiKey = WEB_API_KEY,
-                androidSdkVersion = null
+                clientName = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
+                clientVersion = "2.0",
+                apiKey = TV_API_KEY,
+                androidSdkVersion = null,
+                embedUrl = "https://www.youtube.com/watch?v=$videoId"
             )
 
-            if (webResult != null) {
-                debugLog("✅ SUCCESS via Web InnerTube!")
+            if (tvResult != null) {
+                debugLog("✅ SUCCESS via TV Client!")
                 return@withContext ExtractionResult(
                     success = true,
-                    streamUrl = webResult.first,
-                    quality = webResult.second,
-                    hasAudio = true
+                    streamUrl = tvResult.first,
+                    quality = tvResult.second,
+                    hasAudio = true,
+                    isDashManifest = tvResult.second.contains("DASH")
                 )
             }
 
-            debugLog("⚠️ Web InnerTube failed, trying Android InnerTube...")
+            debugLog("⚠️ TV client failed, trying Android client...")
 
-            // Fallback to Android client
-            debugLog(">>> Attempting Method 2: Android InnerTube API (fallback)")
+            // Try Android client as fallback
+            debugLog(">>> Attempting Method 2: Android InnerTube API")
             val androidResult = tryInnerTubeExtraction(
                 videoId,
                 clientName = "ANDROID",
-                clientVersion = "19.09.37",
+                clientVersion = "20.10.38",
                 apiKey = ANDROID_API_KEY,
-                androidSdkVersion = 33
+                androidSdkVersion = 11,
+                embedUrl = null
             )
 
             if (androidResult != null) {
@@ -119,7 +122,32 @@ class YouTubeStandaloneExtractor(
                     success = true,
                     streamUrl = androidResult.first,
                     quality = androidResult.second,
-                    hasAudio = true
+                    hasAudio = true,
+                    isDashManifest = androidResult.second.contains("DASH")
+                )
+            }
+
+            debugLog("⚠️ Android client failed, trying Web client...")
+
+            // Try WEB client as last resort
+            debugLog(">>> Attempting Method 3: Web InnerTube API")
+            val webResult = tryInnerTubeExtraction(
+                videoId,
+                clientName = "WEB",
+                clientVersion = "2.20240304.00.00",
+                apiKey = WEB_API_KEY,
+                androidSdkVersion = null,
+                embedUrl = null
+            )
+
+            if (webResult != null) {
+                debugLog("✅ SUCCESS via Web InnerTube!")
+                return@withContext ExtractionResult(
+                    success = true,
+                    streamUrl = webResult.first,
+                    quality = webResult.second,
+                    hasAudio = true,
+                    isDashManifest = webResult.second.contains("DASH")
                 )
             }
 
@@ -350,6 +378,14 @@ class YouTubeStandaloneExtractor(
                 }
             }
 
+            // Priority 4: Build custom DASH manifest from adaptive formats
+            // This allows us to get 1080p+ quality by merging video-only and audio-only streams
+            debugLog("--- Attempting to build custom DASH manifest ---")
+            val dashResult = buildCustomDashManifest(streamingData)
+            if (dashResult != null) {
+                return dashResult
+            }
+
             debugLog("❌ No playable formats found in response")
             return null
 
@@ -360,6 +396,20 @@ class YouTubeStandaloneExtractor(
     }
 
     private fun extractVideoId(url: String): String? {
+        // Try to extract from videoDetails first (from API response)
+        try {
+            if (url.contains("videoDetails") || url.contains("videoId")) {
+                val videoIdPattern = Pattern.compile("\"videoId\"\\s*:\\s*\"([a-zA-Z0-9_-]{11})\"")
+                val matcher = videoIdPattern.matcher(url)
+                if (matcher.find()) {
+                    return matcher.group(1)
+                }
+            }
+        } catch (e: Exception) {
+            // Fallthrough to URL extraction
+        }
+        
+        // Extract from URL patterns
         val patterns = listOf(
             "(?:youtube\\.com/watch\\?v=|youtu\\.be/|youtube\\.com/embed/|m\\.youtube\\.com/watch\\?v=)([a-zA-Z0-9_-]{11})",
             "v=([a-zA-Z0-9_-]{11})"
@@ -391,5 +441,178 @@ class YouTubeStandaloneExtractor(
         } catch (e: Exception) {
             Log.e(TAG, "Failed to write debug log", e)
         }
+    }
+
+    private fun buildCustomDashManifest(streamingData: JSONObject): Pair<String, String>? {
+        try {
+            val adaptiveFormats = streamingData.optJSONArray("adaptiveFormats") ?: return null
+            
+            debugLog("Building custom DASH manifest from ${adaptiveFormats.length()} adaptive formats...")
+
+            // Extract video ID for signature decryption
+            val videoId = extractVideoId(streamingData.toString()) ?: ""
+
+            // Find best video format (prefer H.264/AVC for compatibility, then VP9)
+            var bestVideo: VideoFormat? = null
+            var bestVideoHeight = 0
+
+            // Find best audio format (prefer AAC/M4A for compatibility, then Opus)
+            var bestAudio: AudioFormat? = null
+            var bestAudioBitrate = 0
+
+            for (i in 0 until adaptiveFormats.length()) {
+                val format = adaptiveFormats.getJSONObject(i)
+                var url = format.optString("url", "")
+                
+                // Try to decrypt signatureCipher if no direct URL
+                if (url.isEmpty() && format.has("signatureCipher")) {
+                    debugLog("  - Format $i has signatureCipher, attempting decryption...")
+                    val cipher = format.getString("signatureCipher")
+                    
+                    url = kotlinx.coroutines.runBlocking {
+                        signatureDecryptor.decryptSignature(cipher, videoId)
+                    } ?: ""
+                    
+                    if (url.isEmpty()) {
+                        debugLog("  - Decryption failed for format $i")
+                        continue
+                    } else {
+                        debugLog("  - ✅ Successfully decrypted format $i")
+                    }
+                }
+                
+                if (url.isEmpty()) {
+                    debugLog("  - Format $i has no URL after decryption attempt")
+                    continue
+                }
+                
+                val mimeType = format.optString("mimeType", "")
+                if (mimeType.isEmpty()) {
+                    debugLog("  - Format $i has no mimeType")
+                    continue
+                }
+                
+                val bitrate = format.optInt("bitrate", 0)
+                
+                // Parse codecs from mimeType (e.g., "video/mp4; codecs=\"avc1.640028\"")
+                val codecs = extractCodecs(mimeType)
+                
+                if (mimeType.startsWith("video/")) {
+                    val height = format.optInt("height", 0)
+                    val width = format.optInt("width", 0)
+                    val fps = format.optInt("fps", 30)
+                    
+                    if (height == 0 || width == 0) {
+                        debugLog("  - Video format has invalid dimensions: ${width}x${height}")
+                        continue
+                    }
+                    
+                    // Prefer H.264 (avc1) over VP9 for better compatibility
+                    val isH264 = codecs.contains("avc1")
+                    val isVP9 = codecs.contains("vp9")
+                    
+                    // Select best video: prioritize 1080p H.264, then 720p H.264, then VP9
+                    val shouldSelect = when {
+                        bestVideo == null -> true
+                        isH264 && !bestVideo.codecs.contains("avc1") -> true // Prefer H.264
+                        isH264 && bestVideo.codecs.contains("avc1") && height > bestVideoHeight -> true
+                        !isH264 && !bestVideo.codecs.contains("avc1") && height > bestVideoHeight -> true
+                        else -> false
+                    }
+                    
+                    if (shouldSelect && height <= 1920) { // Cap at 1080p for performance
+                        bestVideo = VideoFormat(url, width, height, bitrate, mimeType, codecs, fps)
+                        bestVideoHeight = height
+                        debugLog("  ✓ Video candidate: ${width}x${height} ($codecs) @ ${bitrate/1000}kbps")
+                    }
+                    
+                } else if (mimeType.startsWith("audio/")) {
+                    val sampleRate = format.optInt("audioSampleRate", 44100)
+                    
+                    // Prefer AAC (mp4a) over Opus for better compatibility
+                    val isAAC = codecs.contains("mp4a")
+                    val isOpus = codecs.contains("opus")
+                    
+                    val shouldSelect = when {
+                        bestAudio == null -> true
+                        isAAC && !bestAudio.codecs.contains("mp4a") -> true // Prefer AAC
+                        isAAC && bestAudio.codecs.contains("mp4a") && bitrate > bestAudioBitrate -> true
+                        !isAAC && !bestAudio.codecs.contains("mp4a") && bitrate > bestAudioBitrate -> true
+                        else -> false
+                    }
+                    
+                    if (shouldSelect) {
+                        bestAudio = AudioFormat(url, bitrate, mimeType, codecs, sampleRate)
+                        bestAudioBitrate = bitrate
+                        debugLog("  ✓ Audio candidate: $codecs @ ${bitrate/1000}kbps")
+                    }
+                }
+            }
+
+            if (bestVideo == null || bestAudio == null) {
+                debugLog("❌ Could not find both video and audio formats")
+                debugLog("   Video: ${bestVideo != null}, Audio: ${bestAudio != null}")
+                if (bestVideo == null) debugLog("   → No video formats had valid URLs after decryption")
+                if (bestAudio == null) debugLog("   → No audio formats had valid URLs after decryption")
+                return null
+            }
+
+            debugLog("✓ Selected video: ${bestVideo.width}x${bestVideo.height} (${bestVideo.codecs})")
+            debugLog("✓ Selected audio: ${bestAudio.codecs} @ ${bestAudio.bitrate/1000}kbps")
+
+            // Create DASH manifest
+            val dashManifest = createDashManifestXml(bestVideo, bestAudio)
+            
+            // Save manifest to file
+            val manifestFile = File(context.getExternalFilesDir(null), "youtube_dash_manifest.mpd")
+            manifestFile.writeText(dashManifest)
+            
+            debugLog("✓ DASH manifest created at: ${manifestFile.absolutePath}")
+            debugLog("✅ Using custom DASH manifest for ${bestVideo.width}x${bestVideo.height} playback")
+            
+            // Return file:// URI for ExoPlayer
+            return Pair("file://${manifestFile.absolutePath}", "Custom DASH ${bestVideo.width}x${bestVideo.height}")
+            
+        } catch (e: Exception) {
+            debugLog("❌ Error building DASH manifest: ${e.message}")
+            debugLog("Stack trace: ${e.stackTraceToString()}")
+            return null
+        }
+    }
+
+    private fun extractCodecs(mimeType: String): String {
+        // Extract codecs from mimeType string like "video/mp4; codecs=\"avc1.640028\""
+        val codecsMatch = Regex("codecs=\"([^\"]+)\"").find(mimeType)
+        return codecsMatch?.groupValues?.get(1) ?: ""
+    }
+
+    private fun createDashManifestXml(video: VideoFormat, audio: AudioFormat): String {
+        // Create a valid DASH MPD manifest
+        return """<?xml version="1.0" encoding="UTF-8"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT0H0M0S" minBufferTime="PT2S" profiles="urn:mpeg:dash:profile:isoff-main:2011">
+  <Period>
+    <AdaptationSet mimeType="${video.mimeType.substringBefore(';')}" codecs="${video.codecs}" width="${video.width}" height="${video.height}" frameRate="${video.fps}" subsegmentAlignment="true">
+      <Representation id="video" bandwidth="${video.bitrate}">
+        <BaseURL>${escapeXml(video.url)}</BaseURL>
+        <SegmentBase indexRange="0-" />
+      </Representation>
+    </AdaptationSet>
+    <AdaptationSet mimeType="${audio.mimeType.substringBefore(';')}" codecs="${audio.codecs}" audioSamplingRate="${audio.sampleRate}" subsegmentAlignment="true">
+      <Representation id="audio" bandwidth="${audio.bitrate}">
+        <BaseURL>${escapeXml(audio.url)}</BaseURL>
+        <SegmentBase indexRange="0-" />
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>"""
+    }
+
+    private fun escapeXml(text: String): String {
+        return text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&apos;")
     }
 }
