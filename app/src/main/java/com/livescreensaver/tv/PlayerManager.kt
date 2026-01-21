@@ -1,179 +1,143 @@
 package com.livescreensaver.tv
 
 import android.content.Context
-import android.net.Uri
-import android.util.Log
-import android.view.SurfaceView
-import androidx.media3.common.C
+import android.view.Surface
 import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
+import androidx.media3.exoplayer.source.MergingMediaSource
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.datasource.DefaultHttpDataSource
 
 class PlayerManager(
     private val context: Context,
-    private val surfaceView: SurfaceView?,
-    private val onReady: () -> Unit,
-    private val onError: () -> Unit,
-    private val onPlayingChanged: (Boolean) -> Unit
+    private val eventListener: PlayerEventListener
 ) {
-    companion object {
-        private const val TAG = "PlayerManager"
-        private val secureRandom = java.security.SecureRandom()
+    private var exoPlayer: ExoPlayer? = null
+    
+    interface PlayerEventListener {
+        fun onPlaybackStateChanged(state: Int)
+        fun onPlayerError(error: Exception)
     }
 
-    private var player: ExoPlayer? = null
-    var hasProcessedPlayback = false
-        private set
-
-    fun initializePlayer(cache: PreferenceCache): ExoPlayer {
-        val trackSelector = DefaultTrackSelector(context)
-        val preferredResolution = cache.preferredResolution
-
-        if (preferredResolution != "auto") {
-            val height = preferredResolution.toIntOrNull() ?: 1080
-            trackSelector.setParameters(
-                trackSelector.buildUponParameters()
-                    .setMinVideoSize(0, height)
-                    .setMaxVideoSize(Int.MAX_VALUE, height)
-                    .setForceHighestSupportedBitrate(true)
-                    .setAllowVideoMixedMimeTypeAdaptiveness(false)
-                    .setAllowVideoNonSeamlessAdaptiveness(false)
-                    .setAllowAudioMixedMimeTypeAdaptiveness(false)
-                    .setAllowAudioNonSeamlessAdaptiveness(false)
-            )
+    fun initialize(surface: Surface) {
+        release()
+        
+        exoPlayer = ExoPlayer.Builder(context).build().apply {
+            setVideoSurface(surface)
+            addListener(object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    eventListener.onPlaybackStateChanged(playbackState)
+                }
+                
+                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    eventListener.onPlayerError(Exception(error))
+                }
+            })
         }
+    }
 
-        player = ExoPlayer.Builder(context)
-            .setTrackSelector(trackSelector)
-            .build()
-            .apply {
-                volume = if (cache.audioEnabled) (cache.audioVolume / 100f) else 0f
-                repeatMode = Player.REPEAT_MODE_ONE
-                setVideoSurfaceView(surfaceView)
-                
-                videoScalingMode = when (cache.videoScalingMode) {
-                    "scale_to_fill" -> C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
-                    "default" -> C.VIDEO_SCALING_MODE_DEFAULT
-                    else -> C.VIDEO_SCALING_MODE_SCALE_TO_FIT
+    /**
+     * Play a stream URL
+     * Supports:
+     * - Regular URLs (HLS, DASH, MP4)
+     * - Dual URLs in format: "video_url|||audio_url" for merging
+     */
+    fun playStream(url: String) {
+        val player = exoPlayer ?: return
+        
+        try {
+            // Check if this is a dual-stream URL (video|||audio)
+            if (url.contains("|||")) {
+                val parts = url.split("|||")
+                if (parts.size == 2) {
+                    val videoUrl = parts[0]
+                    val audioUrl = parts[1]
+                    
+                    FileLogger.log("🎬 Loading dual-stream (video + audio)", "PlayerManager")
+                    FileLogger.log("📹 Video: ${videoUrl.take(100)}...", "PlayerManager")
+                    FileLogger.log("🔊 Audio: ${audioUrl.take(100)}...", "PlayerManager")
+                    
+                    playDualStream(videoUrl, audioUrl)
+                    return
                 }
-                
-                if (cache.speedEnabled) {
-                    setPlaybackSpeed(cache.playbackSpeed)
-                }
-
-                addListener(PlayerEventListener())
             }
-
-        return player!!
-    }
-
-    fun playStream(streamUrl: String) {
-        val mediaItem = MediaItem.fromUri(Uri.parse(streamUrl))
-        player?.apply {
-            hasProcessedPlayback = false
-            setMediaItem(mediaItem)
-            prepare()
-            play()
+            
+            // Single URL - play normally
+            FileLogger.log("🎬 Loading single stream: ${url.take(100)}...", "PlayerManager")
+            val mediaItem = MediaItem.fromUri(url)
+            player.setMediaItem(mediaItem)
+            player.prepare()
+            player.play()
+            
+        } catch (e: Exception) {
+            FileLogger.log("❌ Error loading stream: ${e.message}", "PlayerManager")
+            eventListener.onPlayerError(e)
         }
     }
-
-    fun processPlayback(
-        cache: PreferenceCache,
-        duration: Long,
-        resumePosition: Long?,
-        onSeek: (Long) -> Unit
-    ) {
-        if (hasProcessedPlayback) return
-        hasProcessedPlayback = true
-
-        val skipDuration = if (cache.skipBeginningEnabled) cache.skipBeginningDuration else 0L
+    
+    /**
+     * Play separate video and audio streams merged together
+     */
+    private fun playDualStream(videoUrl: String, audioUrl: String) {
+        val player = exoPlayer ?: return
         
-        if (resumePosition != null) {
-            onSeek(resumePosition)
-            Log.d(TAG, "▶️ Resumed playback from ${resumePosition / 1000}s")
-            return
-        }
-        
-        if (skipDuration > 0) {
-            onSeek(skipDuration)
-            Log.d(TAG, "Skipped to ${skipDuration / 1000}s")
-        }
-        
-        if (cache.introEnabled && cache.introDuration > 0) {
-            val randomDelay = secureRandom.nextInt(3000).toLong()
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                if (player != null && player!!.playbackState == Player.STATE_READY && cache.randomSeekEnabled) {
-                    val randomPos = calculateRandomPosition(duration, skipDuration)
-                    onSeek(randomPos)
-                    Log.d(TAG, "🎯 After intro, seeking to ${randomPos / 1000}s")
-                }
-            }, cache.introDuration + randomDelay)
-        } else if (cache.randomSeekEnabled) {
-            val randomDelay = secureRandom.nextInt(3000).toLong()
-            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                if (player != null && player!!.playbackState == Player.STATE_READY) {
-                    val randomPos = calculateRandomPosition(duration, skipDuration)
-                    onSeek(randomPos)
-                    Log.d(TAG, "🎯 Seeking to ${randomPos / 1000}s")
-                }
-            }, randomDelay)
+        try {
+            val dataSourceFactory = DefaultHttpDataSource.Factory()
+            
+            // Create video source
+            val videoItem = MediaItem.fromUri(videoUrl)
+            val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                .createMediaSource(videoItem)
+            
+            // Create audio source
+            val audioItem = MediaItem.fromUri(audioUrl)
+            val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                .createMediaSource(audioItem)
+            
+            // Merge them
+            val mergedSource = MergingMediaSource(videoSource, audioSource)
+            
+            FileLogger.log("✅ Created merged media source", "PlayerManager")
+            
+            player.setMediaSource(mergedSource)
+            player.prepare()
+            player.play()
+            
+        } catch (e: Exception) {
+            FileLogger.log("❌ Error merging streams: ${e.message}", "PlayerManager")
+            eventListener.onPlayerError(e)
         }
     }
 
-    private fun calculateRandomPosition(duration: Long, skipOffset: Long): Long {
-        return if (duration != C.TIME_UNSET && duration > 0) {
-            val usableRange = duration - skipOffset
-            if (usableRange <= 0) skipOffset else skipOffset + (secureRandom.nextDouble() * usableRange).toLong()
-        } else {
-            val maxRandomMs = 180 * 60 * 1000L
-            skipOffset + (secureRandom.nextDouble() * maxRandomMs).toLong()
-        }
+    fun pause() {
+        exoPlayer?.pause()
     }
 
-    fun stop() {
-        player?.stop()
-        player?.clearMediaItems()
+    fun resume() {
+        exoPlayer?.play()
     }
 
-    fun resetProcessedFlag() {
-        hasProcessedPlayback = false
+    fun seekTo(positionMs: Long) {
+        exoPlayer?.seekTo(positionMs)
+    }
+
+    fun getCurrentPosition(): Long {
+        return exoPlayer?.currentPosition ?: 0
+    }
+
+    fun getDuration(): Long {
+        return exoPlayer?.duration ?: 0
     }
 
     fun release() {
-        player?.release()
-        player = null
+        exoPlayer?.release()
+        exoPlayer = null
     }
-
-    fun getPlayer(): ExoPlayer? = player
-
-    private inner class PlayerEventListener : Player.Listener {
-        override fun onPlaybackStateChanged(state: Int) {
-            val stateName = when (state) {
-                Player.STATE_IDLE -> "IDLE"
-                Player.STATE_BUFFERING -> "BUFFERING"
-                Player.STATE_READY -> "READY"
-                Player.STATE_ENDED -> "ENDED"
-                else -> "UNKNOWN"
-            }
-            
-            Log.d(TAG, "🎬 Playback state: $stateName")
-            
-            if (state == Player.STATE_READY) {
-                onReady()
-            }
-        }
-
-        override fun onPlayerError(error: PlaybackException) {
-            Log.e(TAG, "Playback error", error)
-            onError()
-        }
-
-        override fun onIsPlayingChanged(isPlaying: Boolean) {
-            onPlayingChanged(isPlaying)
-        }
+    
+    fun setVolume(volume: Float) {
+        exoPlayer?.volume = volume
     }
+    
+    fun getPlayer(): ExoPlayer? = exoPlayer
 }
