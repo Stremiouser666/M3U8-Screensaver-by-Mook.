@@ -10,9 +10,9 @@ import android.util.Log
 import android.view.Gravity
 import android.view.SurfaceHolder
 import android.view.SurfaceView
-import android.view.View
 import android.widget.FrameLayout
 import android.widget.TextView
+import androidx.media3.common.Player
 import androidx.preference.PreferenceManager
 import kotlinx.coroutines.*
 
@@ -30,7 +30,7 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
         private const val RESUME_CACHE_PREFS = "resume_cache"
         private const val STATS_PREFS = "usage_stats"
         private const val BANDWIDTH_PREFS = "bandwidth_stats"
-        private const val EXTRACTION_TIMEOUT_MS = 25_000L // 25 second timeout for extraction
+        private const val EXTRACTION_TIMEOUT_MS = 25_000L
     }
 
     private var prefCache: PreferenceCache? = null
@@ -53,7 +53,6 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
     private lateinit var bandwidthTracker: BandwidthTracker
     private lateinit var playerManager: PlayerManager
 
-    // FIX #1: Use a scope that won't be cancelled when service stops
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val extractionScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val handler = Handler(Looper.getMainLooper())
@@ -63,7 +62,8 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
     private var stallDetectionTime: Long = 0
     private var surfaceReady = false
     private var isRetrying = false
-    private var activeExtractionJob: Job? = null // Track extraction jobs
+    private var activeExtractionJob: Job? = null
+    private var hasProcessedPlayback = false
 
     private val stallCheckRunnable = object : Runnable {
         override fun run() {
@@ -160,7 +160,6 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
 
         Log.d(TAG, "🔄 Refreshing $urlType URL on startup...")
 
-        // FIX #2: Use extractionScope for background extraction
         extractionScope.launch {
             try {
                 when (urlType) {
@@ -244,19 +243,41 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
 
             val videoUrl = getVideoUrl()
             FileLogger.log("📺 Video URL to load: $videoUrl")
-            val cache = prefCache ?: return
 
             playerManager = PlayerManager(
                 context = this,
-                surfaceView = surfaceView,
-                onReady = { handlePlayerReady() },
-                onError = { hideLoadingAnimation(); handlePlaybackFailure() },
-                onPlayingChanged = { isPlaying -> handlePlayingChanged(isPlaying) }
+                eventListener = object : PlayerManager.PlayerEventListener {
+                    override fun onPlaybackStateChanged(state: Int) {
+                        when (state) {
+                            Player.STATE_READY -> handlePlayerReady()
+                            Player.STATE_IDLE, Player.STATE_ENDED -> {
+                                if (stallDetectionTime == 0L) {
+                                    stallDetectionTime = System.currentTimeMillis()
+                                }
+                            }
+                        }
+                        
+                        val isPlaying = state == Player.STATE_READY && playerManager.getPlayer()?.playWhenReady == true
+                        handlePlayingChanged(isPlaying)
+                    }
+                    
+                    override fun onPlayerError(error: Exception) {
+                        hideLoadingAnimation()
+                        handlePlaybackFailure()
+                    }
+                }
             )
 
-            playerManager.initializePlayer(cache)
-            loadStream(videoUrl)
-            handler.post(stallCheckRunnable)
+            // Initialize player with surface
+            val surface = surfaceView?.holder?.surface
+            if (surface != null) {
+                playerManager.initialize(surface)
+                loadStream(videoUrl)
+                handler.post(stallCheckRunnable)
+            } else {
+                Log.e(TAG, "Surface is null, cannot initialize player")
+            }
+
         } catch (e: Exception) {
             hideLoadingAnimation()
             Log.e(TAG, "Player initialization failed", e)
@@ -266,7 +287,7 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
 
     private fun handlePlayerReady() {
         hideLoadingAnimation()
-        if (!playerManager.hasProcessedPlayback) {
+        if (!hasProcessedPlayback) {
             stallDetectionTime = 0
             retryCount = 0
 
@@ -277,16 +298,19 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
 
             val resumedPosition = resumeManager.attemptResume(cache, currentSourceUrl, duration, skipDuration)
 
-            playerManager.processPlayback(cache, duration, resumedPosition) { position ->
-                player.seekTo(position)
+            // Apply skip/resume logic
+            if (resumedPosition > 0) {
+                player.seekTo(resumedPosition)
             }
+            
+            hasProcessedPlayback = true
         }
     }
 
     private fun handlePlayingChanged(isPlaying: Boolean) {
         if (isPlaying) {
             stallDetectionTime = 0
-        } else if (playerManager.getPlayer()?.playbackState == androidx.media3.common.Player.STATE_READY && stallDetectionTime == 0L) {
+        } else if (playerManager.getPlayer()?.playbackState == Player.STATE_READY && stallDetectionTime == 0L) {
             stallDetectionTime = System.currentTimeMillis()
         }
     }
@@ -301,10 +325,8 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
         FileLogger.log("🔄 loadStream() called with: $sourceUrl", TAG)
         Log.d(TAG, "🔄 Loading stream: $sourceUrl")
 
-        // FIX #3: Cancel any existing extraction job
         activeExtractionJob?.cancel()
 
-        // FIX #4: Use extractionScope and add timeout
         activeExtractionJob = extractionScope.launch {
             try {
                 FileLogger.log("🚀 Coroutine started for stream loading", TAG)
@@ -328,7 +350,6 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
                     }
                 }
 
-                // FIX #5: Switch back to main thread for UI updates
                 withContext(Dispatchers.Main) {
                     if (streamUrl != null) {
                         FileLogger.log("✅ Stream URL resolved: $streamUrl", TAG)
@@ -348,7 +369,6 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
                 }
             } catch (e: CancellationException) {
                 FileLogger.log("⚠️ Stream extraction cancelled (service stopped)", TAG)
-                // Don't log as error - this is expected when service stops
             } catch (e: Exception) {
                 FileLogger.logError("Stream loading error", e, TAG)
                 Log.e(TAG, "Stream loading error", e)
@@ -411,9 +431,15 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
     private fun retryPlayback() {
         stallDetectionTime = 0
         isRetrying = false
-        playerManager.resetProcessedFlag()
-        playerManager.stop()
-        currentSourceUrl?.let { loadStream(it) }
+        hasProcessedPlayback = false
+        playerManager.release()
+        
+        // Reinitialize player for retry
+        val surface = surfaceView?.holder?.surface
+        if (surface != null) {
+            playerManager.initialize(surface)
+            currentSourceUrl?.let { loadStream(it) }
+        }
     }
 
     private fun setupLoadingAnimation() {
@@ -505,10 +531,7 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         try {
-            // FIX #6: Only cancel UI scope, not extraction scope
             serviceScope.cancel()
-            // Let extraction complete in background
-            // extractionScope will be cleaned up by the system
             releasePlayer()
             if (::uiOverlayManager.isInitialized) {
                 uiOverlayManager.cleanup()
