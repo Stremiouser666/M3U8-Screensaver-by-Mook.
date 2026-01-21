@@ -107,26 +107,34 @@ class PlayerManager(
      */
     private fun playDualStreamParallel(videoUrl: String, audioUrl: String) {
         try {
-            // Load video (muted)
             val videoItem = MediaItem.fromUri(videoUrl)
+            val audioItem = MediaItem.fromUri(audioUrl)
+
+            // Prepare both players
             videoPlayer?.apply {
-                volume = 0f
+                volume = 0f  // Mute video
                 setMediaItem(videoItem)
                 prepare()
             }
 
-            // Load audio
-            val audioItem = MediaItem.fromUri(audioUrl)
             audioPlayer?.apply {
+                volume = 1f  // Full audio volume
                 setMediaItem(audioItem)
                 prepare()
             }
 
-            FileLogger.log("✅ Starting parallel playback", "PlayerManager")
+            FileLogger.log("✅ Both players prepared", "PlayerManager")
 
-            // Start both simultaneously
+            // Start video first, then audio (helps with sync)
             videoPlayer?.play()
-            audioPlayer?.play()
+            
+            // Small delay to help sync (optional, can remove if not needed)
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                audioPlayer?.play()
+                FileLogger.log("✅ Audio started", "PlayerManager")
+            }, 50)
+
+            FileLogger.log("✅ Starting parallel playback", "PlayerManager")
 
         } catch (e: Exception) {
             FileLogger.log("❌ Error in parallel playback: ${e.message}", "PlayerManager")
