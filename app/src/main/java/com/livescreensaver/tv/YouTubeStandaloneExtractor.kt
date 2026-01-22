@@ -504,18 +504,17 @@ class YouTubeStandaloneExtractor(
 
                     // Prefer H.264 (avc1) over VP9 for better compatibility
                     val isH264 = codecs.contains("avc1")
-                    val isVP9 = codecs.contains("vp9")
 
-                    // Select best video: prioritize 720p H.264 for faster buffering
+                    // Select 720p specifically for optimal buffering
                     val shouldSelect = when {
-                        bestVideo == null -> true
-                        isH264 && !bestVideo.codecs.contains("avc1") -> true // Prefer H.264
-                        isH264 && bestVideo.codecs.contains("avc1") && height > bestVideoHeight -> true
-                        !isH264 && !bestVideo.codecs.contains("avc1") && height > bestVideoHeight -> true
+                        height == 720 && isH264 -> true  // Always prefer 720p H.264
+                        height == 720 -> true  // Accept 720p even if VP9
+                        bestVideo == null && height <= 1280 && isH264 -> true  // Fallback: any H.264 up to 720p
+                        bestVideo != null && bestVideo.height != 720 && height < bestVideo.height && isH264 -> true  // Take lower res if 720p not found
                         else -> false
                     }
 
-                    if (shouldSelect && height <= 1280) { // Cap at 720p for faster buffering
+                    if (shouldSelect) {
                         bestVideo = VideoFormat(url, width, height, bitrate, mimeType, codecs, fps)
                         bestVideoHeight = height
                         debugLog("  ✓ Video candidate: ${width}x${height} ($codecs) @ ${bitrate/1000}kbps")
