@@ -31,7 +31,7 @@ class YouTubeStandaloneExtractor(
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
-    
+
     private val signatureDecryptor = YouTubeSignatureDecryptor(context, httpClient)
 
     data class ExtractionResult(
@@ -191,7 +191,7 @@ class YouTubeStandaloneExtractor(
                     put("osName", "Android")
                     put("osVersion", "11")
                 }
-                
+
                 // TV client needs additional fields
                 if (clientName.contains("TV")) {
                     put("clientScreen", "EMBED")
@@ -200,7 +200,7 @@ class YouTubeStandaloneExtractor(
 
             val contextJson = JSONObject().apply {
                 put("client", clientContext)
-                
+
                 // TV/Embed client needs thirdParty context
                 if (clientName.contains("TV") && embedUrl != null) {
                     put("thirdParty", JSONObject().apply {
@@ -214,7 +214,7 @@ class YouTubeStandaloneExtractor(
                 put("context", contextJson)
                 put("contentCheckOk", true)
                 put("racyCheckOk", true)
-                
+
                 // Add playbackContext with signatureTimestamp (required for direct URLs)
                 put("playbackContext", JSONObject().apply {
                     put("contentPlaybackContext", JSONObject().apply {
@@ -316,7 +316,7 @@ class YouTubeStandaloneExtractor(
                 return Pair(dashUrl, "DASH manifest")
             }
 
-            // Priority 3: Build custom DASH manifest from adaptive formats (1080p capable)
+            // Priority 3: Build custom DASH manifest from adaptive formats (720p optimized)
             debugLog("--- Attempting to build custom DASH manifest ---")
             val dashResult = buildCustomDashManifest(streamingData)
             if (dashResult != null) {
@@ -327,7 +327,7 @@ class YouTubeStandaloneExtractor(
             val formats = streamingData.optJSONArray("formats")
             if (formats != null && formats.length() > 0) {
                 debugLog("Checking ${formats.length()} progressive formats...")
-                
+
                 var bestUrl: String? = null
                 var bestHeight = 0
                 var bestQuality = ""
@@ -335,17 +335,17 @@ class YouTubeStandaloneExtractor(
                 for (i in 0 until formats.length()) {
                     val format = formats.getJSONObject(i)
                     var url = format.optString("url", "")
-                    
+
                     // If no direct URL, try to decrypt signatureCipher
                     if (url.isEmpty() && format.has("signatureCipher")) {
                         debugLog("⚠️ Format has signatureCipher, attempting decryption...")
                         val cipher = format.getString("signatureCipher")
                         val videoId = extractVideoId(streamingData.toString()) ?: ""
-                        
+
                         url = kotlinx.coroutines.runBlocking {
                             signatureDecryptor.decryptSignature(cipher, videoId)
                         } ?: ""
-                        
+
                         if (url.isNotEmpty()) {
                             debugLog("✅ Successfully decrypted signatureCipher!")
                         } else {
@@ -353,13 +353,13 @@ class YouTubeStandaloneExtractor(
                             continue
                         }
                     }
-                    
+
                     val height = format.optInt("height", 0)
                     val width = format.optInt("width", 0)
                     val quality = format.optString("qualityLabel", "${width}x${height}")
                     val mimeType = format.optString("mimeType", "")
                     val hasAudio = format.has("audioQuality") || mimeType.contains("mp4a") || mimeType.contains("opus")
-                    
+
                     debugLog("  - Progressive: $quality (${mimeType}) [URL:${url.isNotEmpty()}] [Audio:$hasAudio]")
 
                     if (url.isNotEmpty() && hasAudio && mimeType.contains("video")) {
@@ -403,7 +403,7 @@ class YouTubeStandaloneExtractor(
         } catch (e: Exception) {
             // Fallthrough to URL extraction
         }
-        
+
         // Extract from URL patterns
         val patterns = listOf(
             "(?:youtube\\.com/watch\\?v=|youtu\\.be/|youtube\\.com/embed/|m\\.youtube\\.com/watch\\?v=)([a-zA-Z0-9_-]{11})",
@@ -441,7 +441,7 @@ class YouTubeStandaloneExtractor(
     private fun buildCustomDashManifest(streamingData: JSONObject): Pair<String, String>? {
         try {
             val adaptiveFormats = streamingData.optJSONArray("adaptiveFormats") ?: return null
-            
+
             debugLog("Building custom DASH manifest from ${adaptiveFormats.length()} adaptive formats...")
 
             // Extract video ID for signature decryption
@@ -458,16 +458,16 @@ class YouTubeStandaloneExtractor(
             for (i in 0 until adaptiveFormats.length()) {
                 val format = adaptiveFormats.getJSONObject(i)
                 var url = format.optString("url", "")
-                
+
                 // Try to decrypt signatureCipher if no direct URL
                 if (url.isEmpty() && format.has("signatureCipher")) {
                     debugLog("  - Format $i has signatureCipher, attempting decryption...")
                     val cipher = format.getString("signatureCipher")
-                    
+
                     url = kotlinx.coroutines.runBlocking {
                         signatureDecryptor.decryptSignature(cipher, videoId)
                     } ?: ""
-                    
+
                     if (url.isEmpty()) {
                         debugLog("  - Decryption failed for format $i")
                         continue
@@ -475,38 +475,38 @@ class YouTubeStandaloneExtractor(
                         debugLog("  - ✅ Successfully decrypted format $i")
                     }
                 }
-                
+
                 if (url.isEmpty()) {
                     debugLog("  - Format $i has no URL after decryption attempt")
                     continue
                 }
-                
+
                 val mimeType = format.optString("mimeType", "")
                 if (mimeType.isEmpty()) {
                     debugLog("  - Format $i has no mimeType")
                     continue
                 }
-                
+
                 val bitrate = format.optInt("bitrate", 0)
-                
+
                 // Parse codecs from mimeType (e.g., "video/mp4; codecs=\"avc1.640028\"")
                 val codecs = extractCodecs(mimeType)
-                
+
                 if (mimeType.startsWith("video/")) {
                     val height = format.optInt("height", 0)
                     val width = format.optInt("width", 0)
                     val fps = format.optInt("fps", 30)
-                    
+
                     if (height == 0 || width == 0) {
                         debugLog("  - Video format has invalid dimensions: ${width}x${height}")
                         continue
                     }
-                    
+
                     // Prefer H.264 (avc1) over VP9 for better compatibility
                     val isH264 = codecs.contains("avc1")
                     val isVP9 = codecs.contains("vp9")
-                    
-                    // Select best video: prioritize 1080p H.264, then 720p H.264, then VP9
+
+                    // Select best video: prioritize 720p H.264 for faster buffering
                     val shouldSelect = when {
                         bestVideo == null -> true
                         isH264 && !bestVideo.codecs.contains("avc1") -> true // Prefer H.264
@@ -514,20 +514,20 @@ class YouTubeStandaloneExtractor(
                         !isH264 && !bestVideo.codecs.contains("avc1") && height > bestVideoHeight -> true
                         else -> false
                     }
-                    
-                    if (shouldSelect && height <= 1920) { // Cap at 1080p for performance
+
+                    if (shouldSelect && height <= 1280) { // Cap at 720p for faster buffering
                         bestVideo = VideoFormat(url, width, height, bitrate, mimeType, codecs, fps)
                         bestVideoHeight = height
                         debugLog("  ✓ Video candidate: ${width}x${height} ($codecs) @ ${bitrate/1000}kbps")
                     }
-                    
+
                 } else if (mimeType.startsWith("audio/")) {
                     val sampleRate = format.optInt("audioSampleRate", 44100)
-                    
+
                     // Prefer AAC (mp4a) over Opus for better compatibility
                     val isAAC = codecs.contains("mp4a")
                     val isOpus = codecs.contains("opus")
-                    
+
                     val shouldSelect = when {
                         bestAudio == null -> true
                         isAAC && !bestAudio.codecs.contains("mp4a") -> true // Prefer AAC
@@ -535,7 +535,7 @@ class YouTubeStandaloneExtractor(
                         !isAAC && !bestAudio.codecs.contains("mp4a") && bitrate > bestAudioBitrate -> true
                         else -> false
                     }
-                    
+
                     if (shouldSelect) {
                         bestAudio = AudioFormat(url, bitrate, mimeType, codecs, sampleRate)
                         bestAudioBitrate = bitrate
@@ -560,7 +560,7 @@ class YouTubeStandaloneExtractor(
             debugLog("✅ Returning dual-stream URL for merging")
             debugLog("📹 Video: ${bestVideo.url.take(150)}...")
             debugLog("🔊 Audio: ${bestAudio.url.take(150)}...")
-            return Pair(dualStreamUrl, "1080p with audio (${bestVideo.width}x${bestVideo.height})")
+            return Pair(dualStreamUrl, "720p with audio (${bestVideo.width}x${bestVideo.height})")
 
             // Original DASH manifest code (disabled for now due to playback issues)
             /*
@@ -577,7 +577,7 @@ class YouTubeStandaloneExtractor(
             // Return file:// URI for ExoPlayer
             return Pair("file://${manifestFile.absolutePath}", "Custom DASH ${bestVideo.width}x${bestVideo.height}")
             */
-            
+
         } catch (e: Exception) {
             debugLog("❌ Error building DASH manifest: ${e.message}")
             debugLog("Stack trace: ${e.stackTraceToString()}")
