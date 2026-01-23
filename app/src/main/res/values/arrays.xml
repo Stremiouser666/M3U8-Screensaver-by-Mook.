@@ -147,7 +147,7 @@
         <item>5000</item>
     </string-array>
 
-    <!-- Preferred Resolution Options (LEGACY - kept for compatibility) -->
+    <!-- Preferred Resolution Options -->
     <string-array name="resolution_entries">
         <item>Auto</item>
         <item>4K (2160p)</item>
@@ -168,8 +168,8 @@
         <item>360</item>
     </string-array>
 
-    <!-- YouTube Quality Mode Options (NEW) -->
-    <string-array name="youtube_quality_entries">
+    <!-- YouTube Quality Mode Options -->
+    <string-array name="youtube_quality_mode_entries">
         <item>360p (Video + Audio) - Safe Mode</item>
         <item>480p (Video Only + Music)</item>
         <item>720p (Video Only + Music)</item>
@@ -178,32 +178,13 @@
         <item>4K (Video Only + Music)</item>
     </string-array>
 
-    <string-array name="youtube_quality_values">
-        <item>360</item>
-        <item>480</item>
-        <item>720</item>
-        <item>1080</item>
-        <item>1440</item>
-        <item>2160</item>
-    </string-array>
-
-    <!-- Background Music Volume Options -->
-    <string-array name="music_volume_entries">
-        <item>Off (Silent)</item>
-        <item>10%</item>
-        <item>25%</item>
-        <item>50%</item>
-        <item>75%</item>
-        <item>100%</item>
-    </string-array>
-
-    <string-array name="music_volume_values">
-        <item>0</item>
-        <item>10</item>
-        <item>25</item>
-        <item>50</item>
-        <item>75</item>
-        <item>100</item>
+    <string-array name="youtube_quality_mode_values">
+        <item>360_progressive</item>
+        <item>480_video_only</item>
+        <item>720_video_only</item>
+        <item>1080_video_only</item>
+        <item>1440_video_only</item>
+        <item>2160_video_only</item>
     </string-array>
 
 </resources>
