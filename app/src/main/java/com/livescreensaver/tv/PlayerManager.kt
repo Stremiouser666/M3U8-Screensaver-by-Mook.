@@ -1,6 +1,7 @@
 package com.livescreensaver.tv
 
 import android.content.Context
+import android.media.MediaPlayer
 import android.view.Surface
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -15,6 +16,8 @@ class PlayerManager(
     private val eventListener: PlayerEventListener
 ) {
     private var exoPlayer: ExoPlayer? = null
+    private var musicPlayer: MediaPlayer? = null
+    private var streamStartTime: Long = 0
 
     interface PlayerEventListener {
         fun onPlaybackStateChanged(state: Int)
@@ -43,6 +46,11 @@ class PlayerManager(
                 setVideoSurface(surface)
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
+                        if (playbackState == Player.STATE_READY && streamStartTime > 0) {
+                            val latency = System.currentTimeMillis() - streamStartTime
+                            FileLogger.log("⚡ PLAYBACK STARTED in ${latency}ms", "PlayerManager")
+                            streamStartTime = 0
+                        }
                         eventListener.onPlaybackStateChanged(playbackState)
                     }
 
@@ -58,11 +66,23 @@ class PlayerManager(
      * Supports:
      * - Regular URLs (HLS, DASH, MP4)
      * - Dual URLs in format: "video_url|||audio_url" for merging
+     * - Video-only URLs in format: "VIDEO_ONLY|||video_url" (triggers music playback)
      */
     fun playStream(url: String) {
         val player = exoPlayer ?: return
 
         try {
+            // Stop any existing music
+            stopMusic()
+
+            // Check if this is a video-only URL (triggers background music)
+            if (url.startsWith("VIDEO_ONLY|||")) {
+                val videoUrl = url.substringAfter("VIDEO_ONLY|||")
+                FileLogger.log("🎬 Loading video-only stream with music", "PlayerManager")
+                playVideoOnly(videoUrl)
+                return
+            }
+
             // Check if this is a dual-stream URL (video|||audio)
             if (url.contains("|||")) {
                 val parts = url.split("|||")
@@ -87,6 +107,68 @@ class PlayerManager(
             FileLogger.log("❌ Error loading stream: ${e.message}", "PlayerManager")
             eventListener.onPlayerError(e)
         }
+    }
+
+    /**
+     * Play video-only with optional background music
+     */
+    private fun playVideoOnly(videoUrl: String) {
+        val player = exoPlayer ?: return
+
+        try {
+            // Load and play video (muted)
+            val mediaItem = MediaItem.fromUri(videoUrl)
+            player.setMediaItem(mediaItem)
+            player.volume = 0f  // Mute video
+            player.prepare()
+            player.play()
+
+            FileLogger.log("✅ Video-only stream loaded (muted)", "PlayerManager")
+
+            // Try to start background music
+            startMusic()
+
+        } catch (e: Exception) {
+            FileLogger.log("❌ Error loading video-only stream: ${e.message}", "PlayerManager")
+            eventListener.onPlayerError(e)
+        }
+    }
+
+    /**
+     * Start background music if available
+     */
+    private fun startMusic() {
+        try {
+            val musicResId = context.resources.getIdentifier("ambient_music", "raw", context.packageName)
+            
+            if (musicResId == 0) {
+                FileLogger.log("ℹ️ No background music file found (res/raw/ambient_music.mp3)", "PlayerManager")
+                return
+            }
+
+            musicPlayer = MediaPlayer.create(context, musicResId)?.apply {
+                isLooping = true
+                setVolume(0.3f, 0.3f)  // 30% volume for subtle background
+                start()
+                FileLogger.log("🎵 Background music started", "PlayerManager")
+            }
+
+        } catch (e: Exception) {
+            FileLogger.log("⚠️ Could not start background music: ${e.message}", "PlayerManager")
+        }
+    }
+
+    /**
+     * Stop background music
+     */
+    private fun stopMusic() {
+        musicPlayer?.apply {
+            if (isPlaying) {
+                stop()
+            }
+            release()
+        }
+        musicPlayer = null
     }
 
     /**
@@ -142,6 +224,7 @@ class PlayerManager(
     }
 
     fun release() {
+        stopMusic()
         exoPlayer?.release()
         exoPlayer = null
     }
