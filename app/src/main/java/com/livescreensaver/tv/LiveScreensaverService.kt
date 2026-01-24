@@ -128,7 +128,7 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
 
             // Check if URL selection has changed and invalidate cache if needed
             checkAndInvalidateCacheIfNeeded()
-            
+
             refreshUrlIfNeeded()
             setupSurface()
 
@@ -156,14 +156,14 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
         if (lastActiveUrl != null && currentUrl != lastActiveUrl) {
             Log.d(TAG, "🔄 Active URL changed from [$lastActiveUrl] to [$currentUrl]")
             Log.d(TAG, "🗑️ Invalidating cached stream URL")
-            
+
             // Clear the cached extracted stream
             cachePrefs.edit()
                 .remove("original_url")
                 .remove("extracted_url")
                 .remove("url_type")
                 .apply()
-            
+
             FileLogger.log("Cache invalidated due to URL change")
         }
 
@@ -199,8 +199,6 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
                             streamExtractor.extractRutubeUrl(originalUrl)
                         }
                         if (refreshedUrl != null) {
-                            // Only update the main video_url pref, not the cached extracted URL
-                            // This will be re-extracted in loadStream if needed
                             Log.d(TAG, "✅ Rutube URL refreshed")
                         } else {
                             Log.w(TAG, "⚠️ Rutube refresh failed - will try cached URL")
@@ -304,6 +302,13 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
             val surface = surfaceView?.holder?.surface
             if (surface != null) {
                 playerManager.initialize(surface)
+                
+                // ✅ CRITICAL: Apply preferences to player
+                prefCache?.let { cache ->
+                    playerManager.updatePreferences(cache)
+                    FileLogger.log("✅ Preferences applied to PlayerManager")
+                }
+                
                 loadStream(videoUrl)
                 handler.post(stallCheckRunnable)
             } else {
@@ -328,11 +333,12 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
             val duration = player.duration
             val skipDuration = if (cache.skipBeginningEnabled) cache.skipBeginningDuration else 0L
 
+            // Only handle resume here - PlayerManager handles skip/random seek automatically
             val resumedPosition = resumeManager.attemptResume(cache, currentSourceUrl, duration, skipDuration)
 
-            // Apply skip/resume logic
             if (resumedPosition != null && resumedPosition > 0) {
                 player.seekTo(resumedPosition)
+                FileLogger.log("⏮️ Resumed playback at ${resumedPosition / 1000}s")
             }
 
             hasProcessedPlayback = true
@@ -350,10 +356,10 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
     private fun getVideoUrl(): String {
         val cache = prefCache ?: return preferences.getString(PREF_VIDEO_URL, DEFAULT_VIDEO_URL) ?: DEFAULT_VIDEO_URL
         val selectedUrl = scheduleManager.getScheduledUrl(cache)
-        
+
         Log.d(TAG, "Selected URL for playback: $selectedUrl")
         FileLogger.log("Selected URL: $selectedUrl")
-        
+
         return selectedUrl
     }
 
@@ -371,11 +377,11 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
                 val streamUrl = withTimeout(EXTRACTION_TIMEOUT_MS) {
                     if (streamExtractor.needsExtraction(sourceUrl)) {
                         FileLogger.log("✅ Needs extraction: true", TAG)
-                        
+
                         // Check if the cached URL matches the current source
                         val cachedOriginal = streamExtractor.getCachedOriginalUrl()
                         val cachedUrl = streamExtractor.getCachedUrl()
-                        
+
                         if (cachedOriginal == sourceUrl && cachedUrl != null && cachedUrl.isNotEmpty()) {
                             FileLogger.log("✅ Using cached extracted URL: $cachedUrl", TAG)
                             Log.d(TAG, "✅ Using cached extracted URL")
@@ -479,6 +485,13 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
         val surface = surfaceView?.holder?.surface
         if (surface != null) {
             playerManager.initialize(surface)
+            
+            // ✅ Reapply preferences after retry
+            prefCache?.let { cache ->
+                playerManager.updatePreferences(cache)
+                FileLogger.log("✅ Preferences reapplied after retry")
+            }
+            
             currentSourceUrl?.let { loadStream(it) }
         }
     }
