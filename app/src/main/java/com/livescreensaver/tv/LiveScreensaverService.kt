@@ -126,9 +126,7 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
             prefCache = preferenceManager.loadPreferenceCache()
             streamExtractor = StreamExtractor(this, cachePrefs)
 
-            // Check if URL selection has changed and invalidate cache if needed
             checkAndInvalidateCacheIfNeeded()
-
             refreshUrlIfNeeded()
             setupSurface()
 
@@ -145,9 +143,6 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
         }
     }
 
-    /**
-     * Checks if the active URL has changed since last time and invalidates cache if needed
-     */
     private fun checkAndInvalidateCacheIfNeeded() {
         val cache = prefCache ?: return
         val currentUrl = scheduleManager.getScheduledUrl(cache)
@@ -157,7 +152,6 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
             Log.d(TAG, "🔄 Active URL changed from [$lastActiveUrl] to [$currentUrl]")
             Log.d(TAG, "🗑️ Invalidating cached stream URL")
 
-            // Clear the cached extracted stream
             cachePrefs.edit()
                 .remove("original_url")
                 .remove("extracted_url")
@@ -167,7 +161,6 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
             FileLogger.log("Cache invalidated due to URL change")
         }
 
-        // Save the current URL as the last active one
         preferenceManager.saveLastActiveUrl(currentUrl)
         Log.d(TAG, "💾 Saved current active URL: $currentUrl")
     }
@@ -298,12 +291,11 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
                 }
             )
 
-            // Initialize player with surface
             val surface = surfaceView?.holder?.surface
             if (surface != null) {
                 playerManager.initialize(surface)
                 
-                // ✅ CRITICAL: Apply preferences to player
+                // Apply preferences to player
                 prefCache?.let { cache ->
                     playerManager.updatePreferences(cache)
                     FileLogger.log("✅ Preferences applied to PlayerManager")
@@ -378,7 +370,6 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
                     if (streamExtractor.needsExtraction(sourceUrl)) {
                         FileLogger.log("✅ Needs extraction: true", TAG)
 
-                        // Check if the cached URL matches the current source
                         val cachedOriginal = streamExtractor.getCachedOriginalUrl()
                         val cachedUrl = streamExtractor.getCachedUrl()
 
@@ -481,12 +472,11 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
         hasProcessedPlayback = false
         playerManager.release()
 
-        // Reinitialize player for retry
         val surface = surfaceView?.holder?.surface
         if (surface != null) {
             playerManager.initialize(surface)
             
-            // ✅ Reapply preferences after retry
+            // Reapply preferences after retry
             prefCache?.let { cache ->
                 playerManager.updatePreferences(cache)
                 FileLogger.log("✅ Preferences reapplied after retry")
