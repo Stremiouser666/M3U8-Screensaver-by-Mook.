@@ -58,6 +58,18 @@ class StreamExtractor(
         return prefs.getString("youtube_quality_mode", "360_progressive") ?: "360_progressive"
     }
 
+    private fun getTargetHeight(): Int {
+        return when (getQualityMode()) {
+            "360_progressive" -> 360
+            "480_video_only" -> 480
+            "720_video_only" -> 720
+            "1080_video_only" -> 1080
+            "1440_video_only" -> 1440
+            "2160_video_only" -> 2160
+            else -> 720
+        }
+    }
+
     suspend fun extractStreamUrl(sourceUrl: String, forceRefresh: Boolean, cacheExpirationSeconds: Long): String? = withContext(Dispatchers.IO) {
         try {
             FileLogger.log("🎬 Starting extraction for: $sourceUrl", TAG)
@@ -167,18 +179,126 @@ class StreamExtractor(
             val m3u8Url = videoBalancer.optString("m3u8")
                 .ifEmpty { videoBalancer.optString("default") }
 
-            if (m3u8Url.isNotEmpty()) {
-                Log.d(TAG, "✅ Rutube M3U8 extracted successfully")
-            } else {
+            if (m3u8Url.isEmpty()) {
                 Log.e(TAG, "No M3U8 URL found in Rutube response")
+                return@withContext null
             }
 
-            m3u8Url.takeIf { it.isNotEmpty() }
+            FileLogger.log("📥 Got Rutube master playlist: ${m3u8Url.take(100)}...", TAG)
+
+            // Parse the HLS manifest to get specific quality
+            val specificQualityUrl = parseRutubeManifest(m3u8Url)
+            
+            if (specificQualityUrl != null) {
+                Log.d(TAG, "✅ Rutube quality-specific URL extracted")
+                FileLogger.log("✅ Rutube quality-specific URL extracted", TAG)
+                specificQualityUrl
+            } else {
+                Log.d(TAG, "⚠️ Could not parse manifest, using master playlist")
+                FileLogger.log("⚠️ Using master playlist (adaptive quality)", TAG)
+                m3u8Url
+            }
+
         } catch (e: Exception) {
             Log.e(TAG, "Rutube extraction error", e)
             null
         }
     }
+
+    private suspend fun parseRutubeManifest(masterPlaylistUrl: String): String? = withContext(Dispatchers.IO) {
+        try {
+            FileLogger.log("📋 Parsing Rutube HLS manifest for quality selection...", TAG)
+            
+            val request = Request.Builder()
+                .url(masterPlaylistUrl)
+                .addHeader("Referer", "https://rutube.ru")
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            if (!response.isSuccessful) {
+                FileLogger.log("❌ Failed to download manifest: ${response.code}", TAG)
+                return@withContext null
+            }
+
+            val manifestContent = response.body?.string()
+            if (manifestContent.isNullOrEmpty()) {
+                FileLogger.log("❌ Empty manifest content", TAG)
+                return@withContext null
+            }
+
+            // Parse HLS manifest
+            val lines = manifestContent.lines()
+            val variants = mutableListOf<RutubeVariant>()
+            
+            var i = 0
+            while (i < lines.size) {
+                val line = lines[i].trim()
+                
+                // Look for #EXT-X-STREAM-INF lines
+                if (line.startsWith("#EXT-X-STREAM-INF:")) {
+                    // Extract resolution
+                    val resolutionMatch = Regex("RESOLUTION=(\\d+)x(\\d+)").find(line)
+                    val bandwidth = Regex("BANDWIDTH=(\\d+)").find(line)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+                    
+                    if (resolutionMatch != null && i + 1 < lines.size) {
+                        val width = resolutionMatch.groupValues[1].toInt()
+                        val height = resolutionMatch.groupValues[2].toInt()
+                        val variantUrl = lines[i + 1].trim()
+                        
+                        if (variantUrl.isNotEmpty() && !variantUrl.startsWith("#")) {
+                            // Make absolute URL if needed
+                            val absoluteUrl = if (variantUrl.startsWith("http")) {
+                                variantUrl
+                            } else {
+                                val baseUrl = masterPlaylistUrl.substringBeforeLast("/")
+                                "$baseUrl/$variantUrl"
+                            }
+                            
+                            variants.add(RutubeVariant(width, height, bandwidth, absoluteUrl))
+                            FileLogger.log("  Found variant: ${width}x${height} @ ${bandwidth/1000}kbps", TAG)
+                        }
+                    }
+                }
+                i++
+            }
+
+            if (variants.isEmpty()) {
+                FileLogger.log("⚠️ No variants found in manifest", TAG)
+                return@withContext null
+            }
+
+            // Select best matching quality
+            val targetHeight = getTargetHeight()
+            FileLogger.log("🎯 Target quality: ${targetHeight}p", TAG)
+            
+            // Sort by closest to target height, then by bandwidth
+            val bestVariant = variants
+                .sortedWith(compareBy(
+                    { kotlin.math.abs(it.height - targetHeight) },  // Closest to target
+                    { -it.bandwidth }  // Higher bandwidth if tie
+                ))
+                .firstOrNull()
+
+            if (bestVariant != null) {
+                FileLogger.log("✅ Selected: ${bestVariant.width}x${bestVariant.height} @ ${bestVariant.bandwidth/1000}kbps", TAG)
+                bestVariant.url
+            } else {
+                null
+            }
+
+        } catch (e: Exception) {
+            FileLogger.log("❌ Error parsing manifest: ${e.message}", TAG)
+            Log.e(TAG, "Error parsing Rutube manifest", e)
+            null
+        }
+    }
+
+    private data class RutubeVariant(
+        val width: Int,
+        val height: Int,
+        val bandwidth: Int,
+        val url: String
+    )
 
     private fun extractRutubeVideoId(url: String): String? {
         val regex = "rutube\\.ru/video/([a-f0-9]+)".toRegex(RegexOption.IGNORE_CASE)
