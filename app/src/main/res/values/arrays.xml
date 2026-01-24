@@ -5,12 +5,14 @@
     <string-array name="video_scaling_entries">
         <item>Scale to Fit</item>
         <item>Scale to Fill (Crop)</item>
+        <item>Fit to Screen</item>
         <item>Default</item>
     </string-array>
 
     <string-array name="video_scaling_values">
         <item>scale_to_fit</item>
         <item>scale_to_fill</item>
+        <item>fit_to_screen</item>
         <item>default</item>
     </string-array>
 
