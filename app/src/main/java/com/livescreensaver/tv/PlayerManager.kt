@@ -3,13 +3,17 @@ package com.livescreensaver.tv
 import android.content.Context
 import android.media.MediaPlayer
 import android.view.Surface
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.ui.AspectRatioFrameLayout
+import kotlin.random.Random
 
 class PlayerManager(
     private val context: Context,
@@ -18,6 +22,17 @@ class PlayerManager(
     private var exoPlayer: ExoPlayer? = null
     private var musicPlayer: MediaPlayer? = null
     private var streamStartTime: Long = 0
+    
+    // Playback preferences
+    private var playbackSpeed: Float = 1.0f
+    private var randomSeekEnabled: Boolean = true
+    private var introEnabled: Boolean = true
+    private var introDuration: Int = 7
+    private var skipBeginningEnabled: Boolean = false
+    private var skipBeginningDuration: Long = 0
+    private var videoScalingMode: Int = C.VIDEO_SCALING_MODE_SCALE_TO_FIT
+    private var audioEnabled: Boolean = false
+    private var audioVolume: Float = 0.5f
 
     interface PlayerEventListener {
         fun onPlaybackStateChanged(state: Int)
@@ -27,16 +42,15 @@ class PlayerManager(
     fun initialize(surface: Surface) {
         release()
 
-        // BALANCED buffering - build proper buffer before starting
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                5000,   // min buffer (5s) - build buffer first
-                20000,  // max buffer (20s) - longer for stability
+                5000,   // min buffer (5s)
+                20000,  // max buffer (20s)
                 500,    // START PLAYBACK at 500ms
                 2000    // rebuffer threshold (2s)
             )
             .setPrioritizeTimeOverSizeThresholds(true)
-            .setTargetBufferBytes(-1)  // No size limit, focus on time
+            .setTargetBufferBytes(-1)
             .build()
 
         exoPlayer = ExoPlayer.Builder(context)
@@ -44,12 +58,25 @@ class PlayerManager(
             .build()
             .apply {
                 setVideoSurface(surface)
+                
+                // Apply video scaling mode
+                videoScalingMode = this@PlayerManager.videoScalingMode
+                
+                // Apply playback speed
+                playbackParameters = PlaybackParameters(playbackSpeed)
+                
+                // Apply audio settings
+                volume = if (audioEnabled) audioVolume else 0f
+                
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         if (playbackState == Player.STATE_READY && streamStartTime > 0) {
                             val latency = System.currentTimeMillis() - streamStartTime
                             FileLogger.log("⚡ PLAYBACK STARTED in ${latency}ms", "PlayerManager")
                             streamStartTime = 0
+                            
+                            // Handle random seek and intro
+                            handleInitialPlayback()
                         }
                         eventListener.onPlaybackStateChanged(playbackState)
                     }
@@ -62,20 +89,85 @@ class PlayerManager(
     }
 
     /**
-     * Play a stream URL
-     * Supports:
-     * - Regular URLs (HLS, DASH, MP4)
-     * - Dual URLs in format: "video_url|||audio_url" for merging
-     * - Video-only URLs in format: "VIDEO_ONLY|||video_url" (triggers music playback)
+     * Update playback preferences from PreferenceCache
      */
+    fun updatePreferences(cache: PreferenceCache) {
+        playbackSpeed = if (cache.speedEnabled) cache.playbackSpeed else 1.0f
+        randomSeekEnabled = cache.randomSeekEnabled
+        introEnabled = cache.introEnabled
+        introDuration = cache.introDuration
+        skipBeginningEnabled = cache.skipBeginningEnabled
+        skipBeginningDuration = cache.skipBeginningDuration
+        audioEnabled = cache.audioEnabled
+        audioVolume = cache.audioVolume / 100f
+        
+        // Map video scaling preference to ExoPlayer constant
+        videoScalingMode = when (cache.videoScalingMode) {
+            "scale_to_fit" -> C.VIDEO_SCALING_MODE_SCALE_TO_FIT
+            "scale_to_fit_with_cropping" -> C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+            else -> C.VIDEO_SCALING_MODE_DEFAULT
+        }
+        
+        // Apply settings to active player
+        exoPlayer?.let { player ->
+            player.playbackParameters = PlaybackParameters(playbackSpeed)
+            player.volume = if (audioEnabled) audioVolume else 0f
+            player.videoScalingMode = videoScalingMode
+        }
+        
+        FileLogger.log("⚙️ Preferences updated - Speed: $playbackSpeed, Audio: ${if (audioEnabled) "${(audioVolume * 100).toInt()}%" else "OFF"}, Scaling: ${cache.videoScalingMode}", "PlayerManager")
+    }
+
+    /**
+     * Handle initial playback setup (intro, random seek, skip beginning)
+     */
+    private fun handleInitialPlayback() {
+        val player = exoPlayer ?: return
+        val duration = player.duration
+        
+        if (duration <= 0 || duration == C.TIME_UNSET) {
+            FileLogger.log("⚠️ Duration unknown, skipping initial playback setup", "PlayerManager")
+            return
+        }
+
+        var seekPosition = 0L
+
+        // Priority 1: Skip beginning (if enabled)
+        if (skipBeginningEnabled && skipBeginningDuration > 0) {
+            seekPosition = skipBeginningDuration * 1000 // Convert seconds to ms
+            FileLogger.log("⏩ Skip beginning: ${skipBeginningDuration}s", "PlayerManager")
+        }
+        
+        // Priority 2: Random seek (if enabled and no skip beginning)
+        else if (randomSeekEnabled) {
+            // Calculate safe random position (avoid last 10% of video)
+            val safeEndPosition = (duration * 0.9).toLong()
+            val introDurationMs = if (introEnabled) introDuration * 1000L else 0L
+            
+            if (safeEndPosition > introDurationMs) {
+                seekPosition = Random.nextLong(introDurationMs, safeEndPosition)
+                FileLogger.log("🎲 Random seek to: ${seekPosition / 1000}s", "PlayerManager")
+            }
+        }
+        
+        // Priority 3: Intro play (if enabled and no other seek)
+        else if (introEnabled && introDuration > 0) {
+            seekPosition = 0
+            FileLogger.log("▶️ Playing intro: ${introDuration}s", "PlayerManager")
+        }
+
+        // Apply seek if needed
+        if (seekPosition > 0) {
+            player.seekTo(seekPosition)
+        }
+    }
+
     fun playStream(url: String) {
         val player = exoPlayer ?: return
 
         try {
-            // Stop any existing music
             stopMusic()
 
-            // Check if this is a video-only URL (triggers background music)
             if (url.startsWith("VIDEO_ONLY|||")) {
                 val videoUrl = url.substringAfter("VIDEO_ONLY|||")
                 FileLogger.log("🎬 Loading video-only stream with music", "PlayerManager")
@@ -83,21 +175,19 @@ class PlayerManager(
                 return
             }
 
-            // Check if this is a dual-stream URL (video|||audio)
             if (url.contains("|||")) {
                 val parts = url.split("|||")
                 if (parts.size == 2) {
                     val videoUrl = parts[0]
                     val audioUrl = parts[1]
-
                     FileLogger.log("🎬 Merging video + audio streams", "PlayerManager")
                     playMergedStream(videoUrl, audioUrl)
                     return
                 }
             }
 
-            // Single URL - play normally
             FileLogger.log("🎬 Loading single stream: ${url.take(100)}...", "PlayerManager")
+            streamStartTime = System.currentTimeMillis()
             val mediaItem = MediaItem.fromUri(url)
             player.setMediaItem(mediaItem)
             player.prepare()
@@ -109,23 +199,18 @@ class PlayerManager(
         }
     }
 
-    /**
-     * Play video-only with optional background music
-     */
     private fun playVideoOnly(videoUrl: String) {
         val player = exoPlayer ?: return
 
         try {
-            // Load and play video (muted)
+            streamStartTime = System.currentTimeMillis()
             val mediaItem = MediaItem.fromUri(videoUrl)
             player.setMediaItem(mediaItem)
-            player.volume = 0f  // Mute video
+            player.volume = 0f
             player.prepare()
             player.play()
 
             FileLogger.log("✅ Video-only stream loaded (muted)", "PlayerManager")
-
-            // Try to start background music
             startMusic()
 
         } catch (e: Exception) {
@@ -134,13 +219,10 @@ class PlayerManager(
         }
     }
 
-    /**
-     * Start background music if available
-     */
     private fun startMusic() {
         try {
             val musicResId = context.resources.getIdentifier("ambient_music", "raw", context.packageName)
-            
+
             if (musicResId == 0) {
                 FileLogger.log("ℹ️ No background music file found (res/raw/ambient_music.mp3)", "PlayerManager")
                 return
@@ -148,7 +230,7 @@ class PlayerManager(
 
             musicPlayer = MediaPlayer.create(context, musicResId)?.apply {
                 isLooping = true
-                setVolume(0.3f, 0.3f)  // 30% volume for subtle background
+                setVolume(0.3f, 0.3f)
                 start()
                 FileLogger.log("🎵 Background music started", "PlayerManager")
             }
@@ -158,9 +240,6 @@ class PlayerManager(
         }
     }
 
-    /**
-     * Stop background music
-     */
     private fun stopMusic() {
         musicPlayer?.apply {
             if (isPlaying) {
@@ -171,14 +250,11 @@ class PlayerManager(
         musicPlayer = null
     }
 
-    /**
-     * Merge video and audio using MergingMediaSource
-     * With balanced buffering, should build 5s buffer before starting
-     */
     private fun playMergedStream(videoUrl: String, audioUrl: String) {
         val player = exoPlayer ?: return
 
         try {
+            streamStartTime = System.currentTimeMillis()
             val dataSourceFactory = DefaultHttpDataSource.Factory()
                 .setConnectTimeoutMs(5000)
                 .setReadTimeoutMs(5000)
