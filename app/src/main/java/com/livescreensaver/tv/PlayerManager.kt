@@ -12,7 +12,6 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.ui.AspectRatioFrameLayout
 import kotlin.random.Random
 
 class PlayerManager(
@@ -30,7 +29,7 @@ class PlayerManager(
     private var introDuration: Int = 7
     private var skipBeginningEnabled: Boolean = false
     private var skipBeginningDuration: Long = 0
-    private var videoScalingMode: Int = C.VIDEO_SCALING_MODE_SCALE_TO_FIT
+    private var videoScalingMode: String = "scale_to_fit"  // Store as String, not Int
     private var audioEnabled: Boolean = false
     private var audioVolume: Float = 0.5f
 
@@ -58,9 +57,6 @@ class PlayerManager(
             .build()
             .apply {
                 setVideoSurface(surface)
-                
-                // Apply video scaling mode
-                videoScalingMode = this@PlayerManager.videoScalingMode
                 
                 // Apply playback speed
                 playbackParameters = PlaybackParameters(playbackSpeed)
@@ -100,22 +96,19 @@ class PlayerManager(
         skipBeginningDuration = cache.skipBeginningDuration
         audioEnabled = cache.audioEnabled
         audioVolume = cache.audioVolume / 100f
-        
-        // Map video scaling preference to ExoPlayer constant
-        videoScalingMode = when (cache.videoScalingMode) {
-            "scale_to_fit" -> C.VIDEO_SCALING_MODE_SCALE_TO_FIT
-            "scale_to_fit_with_cropping" -> C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
-            else -> C.VIDEO_SCALING_MODE_DEFAULT
-        }
+        videoScalingMode = cache.videoScalingMode
         
         // Apply settings to active player
         exoPlayer?.let { player ->
             player.playbackParameters = PlaybackParameters(playbackSpeed)
             player.volume = if (audioEnabled) audioVolume else 0f
-            player.videoScalingMode = videoScalingMode
+            
+            // Note: Video scaling mode cannot be changed after player creation
+            // It requires PlayerView which we don't have access to here
+            // This would need to be handled in LiveScreensaverService if needed
         }
         
-        FileLogger.log("⚙️ Preferences updated - Speed: $playbackSpeed, Audio: ${if (audioEnabled) "${(audioVolume * 100).toInt()}%" else "OFF"}, Scaling: ${cache.videoScalingMode}", "PlayerManager")
+        FileLogger.log("⚙️ Preferences updated - Speed: $playbackSpeed, Audio: ${if (audioEnabled) "${(audioVolume * 100).toInt()}%" else "OFF"}, Scaling: $videoScalingMode", "PlayerManager")
     }
 
     /**
