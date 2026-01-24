@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.FragmentActivity
 import androidx.leanback.preference.LeanbackPreferenceFragmentCompat
 import androidx.leanback.preference.LeanbackSettingsFragmentCompat
@@ -395,32 +396,42 @@ class SettingsActivity : FragmentActivity() {
             }
             playbackCategory.addPreference(resumeEnabledPref)
 
+            // CHANGED: Replace non-selectable Preference with clickable dialog
             val resumeInfoPref = Preference(context).apply {
                 key = "resume_info"
                 title = getString(R.string.pref_resume_behavior_title)
-                summary = getString(R.string.pref_resume_behavior_info)
-                isSelectable = false
+                summary = "Tap for detailed explanation"
+                
+                setOnPreferenceClickListener {
+                    showResumeInfoDialog()
+                    true
+                }
             }
             playbackCategory.addPreference(resumeInfoPref)
 
             val youtubeQualityModePref = ListPreference(context).apply {
-    key = "youtube_quality_mode"
-    title = getString(R.string.pref_youtube_quality_mode_title)
-    summary = getString(R.string.pref_youtube_quality_mode_summary)
-    entries = resources.getStringArray(R.array.youtube_quality_mode_entries)
-    entryValues = resources.getStringArray(R.array.youtube_quality_mode_values)
-    setDefaultValue("360_progressive")  // Safe default
-    summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
-}
-playbackCategory.addPreference(youtubeQualityModePref)
+                key = "youtube_quality_mode"
+                title = getString(R.string.pref_youtube_quality_mode_title)
+                summary = getString(R.string.pref_youtube_quality_mode_summary)
+                entries = resources.getStringArray(R.array.youtube_quality_mode_entries)
+                entryValues = resources.getStringArray(R.array.youtube_quality_mode_values)
+                setDefaultValue("360_progressive")
+                summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
+            }
+            playbackCategory.addPreference(youtubeQualityModePref)
 
-val youtubeQualityInfoPref = Preference(context).apply {
-    key = "youtube_quality_info"
-    title = getString(R.string.pref_youtube_quality_info_title)
-    summary = getString(R.string.pref_youtube_quality_info_summary)
-    isSelectable = false
-}
-playbackCategory.addPreference(youtubeQualityInfoPref)
+            // CHANGED: Replace non-selectable Preference with clickable dialog
+            val youtubeQualityInfoPref = Preference(context).apply {
+                key = "youtube_quality_info"
+                title = getString(R.string.pref_youtube_quality_info_title)
+                summary = "Tap for quality mode details"
+                
+                setOnPreferenceClickListener {
+                    showYoutubeQualityInfoDialog()
+                    true
+                }
+            }
+            playbackCategory.addPreference(youtubeQualityInfoPref)
 
             // === AUDIO SECTION ===
             val audioCategory = PreferenceCategory(context).apply {
@@ -455,7 +466,7 @@ playbackCategory.addPreference(youtubeQualityInfoPref)
             audioCategory.addPreference(audioVolumePref)
 
             // === CLOCK OVERLAY SECTION ===
-val clockCategory = PreferenceCategory(context).apply {
+            val clockCategory = PreferenceCategory(context).apply {
                 key = "category_clock"
                 title = getString(R.string.pref_category_clock)
             }
@@ -636,6 +647,53 @@ val clockCategory = PreferenceCategory(context).apply {
             debugCategory.addPreference(statsIntervalPref)
 
             preferenceScreen = screen
+        }
+
+        private fun showResumeInfoDialog() {
+            val message = """
+                How Resume interacts with Random Seek:
+                
+                • Resume OFF + Random Seek ON
+                  Always start at random position
+                
+                • Resume ON + Random Seek OFF
+                  Always resume from last position
+                
+                • Resume ON + Random Seek ON
+                  Smart mode (resume if recent)
+                
+                Resume works when:
+                ✓ Same URL is still set
+                ✓ Less than 5 minutes passed
+                ✓ Resume feature enabled
+            """.trimIndent()
+
+            AlertDialog.Builder(requireContext())
+                .setTitle("Playback Behavior")
+                .setMessage(message)
+                .setPositiveButton("OK") { dialog, _ -> dialog.dismiss() }
+                .show()
+        }
+
+        private fun showYoutubeQualityInfoDialog() {
+            val message = """
+                Quality Mode Information:
+                
+                • 360p: Single stream with audio
+                  Works on all devices
+                
+                • 480p-4K: Video only with background music
+                
+                Video-only modes use less bandwidth and work better on older devices. Background music plays if available (res/raw/ambient_music.mp3), otherwise silent.
+                
+                This setting applies to both YouTube and Rutube videos.
+            """.trimIndent()
+
+            AlertDialog.Builder(requireContext())
+                .setTitle("YouTube/Rutube Quality")
+                .setMessage(message)
+                .setPositiveButton("OK") { dialog, _ -> dialog.dismiss() }
+                .show()
         }
 
         private fun updateScheduleVisibility(enabled: Boolean) {
