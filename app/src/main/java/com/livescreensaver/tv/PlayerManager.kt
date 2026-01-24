@@ -111,8 +111,8 @@ class PlayerManager(
         var seekPosition = 0L
 
         if (skipBeginningEnabled && skipBeginningDuration > 0) {
-            seekPosition = skipBeginningDuration * 1000
-            FileLogger.log("⏩ Skip beginning: ${skipBeginningDuration}s", "PlayerManager")
+            seekPosition = skipBeginningDuration  // Already in milliseconds
+            FileLogger.log("⏩ Skip beginning: ${skipBeginningDuration / 1000}s", "PlayerManager")
         }
         else if (randomSeekEnabled) {
             val safeEndPosition = (duration * 0.9).toLong()
