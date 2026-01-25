@@ -5,7 +5,7 @@ import android.content.SharedPreferences
 data class PreferenceCache(
     val audioEnabled: Boolean,
     val audioVolume: Int,
-    val videoScalingMode: String,
+    // videoScalingMode removed - not supported with SurfaceView
     val speedEnabled: Boolean,
     val playbackSpeed: Float,
     val introEnabled: Boolean,
@@ -37,7 +37,6 @@ class AppPreferenceManager(private val preferences: SharedPreferences) {
         return PreferenceCache(
             audioEnabled = preferences.getBoolean("audio_enabled", false),
             audioVolume = preferences.getString("audio_volume", "50")?.toIntOrNull() ?: 50,
-            videoScalingMode = preferences.getString("video_scaling_mode", "scale_to_fit") ?: "scale_to_fit",
             speedEnabled = preferences.getBoolean("speed_enabled", false),
             playbackSpeed = preferences.getString("playback_speed", "1.0")?.toFloatOrNull() ?: 1.0f,
             introEnabled = preferences.getBoolean("intro_enabled", true),
@@ -68,23 +67,14 @@ class AppPreferenceManager(private val preferences: SharedPreferences) {
         return preferences.getString("loading_animation_text", "Loading") ?: "Loading"
     }
 
-    /**
-     * Gets the last URL that was actively used for playback
-     */
     fun getLastActiveUrl(): String? {
         return preferences.getString(PREF_LAST_ACTIVE_URL, null)
     }
 
-    /**
-     * Saves the currently active URL for comparison on next startup
-     */
     fun saveLastActiveUrl(url: String) {
         preferences.edit().putString(PREF_LAST_ACTIVE_URL, url).apply()
     }
 
-    /**
-     * Clears the last active URL (useful when forcing a refresh)
-     */
     fun clearLastActiveUrl() {
         preferences.edit().remove(PREF_LAST_ACTIVE_URL).apply()
     }
