@@ -43,12 +43,12 @@ class PlayerManager(
         release()
         hasAppliedInitialSeek = false
 
-        // Adaptive buffer based on playback speed
+        // Aggressive buffering for higher speeds
         val speedMultiplier = playbackSpeed.coerceAtLeast(1.0f)
-        val minBuffer = (5000 * speedMultiplier).toInt()  // 5s base, scales with speed
-        val maxBuffer = (30000 * speedMultiplier).toInt() // 30s base, scales with speed
-        val playbackBuffer = 1000  // Still start quickly at 1s
-        val rebufferThreshold = (3000 * speedMultiplier).toInt() // 3s base
+        val minBuffer = (8000 * speedMultiplier).toInt()  // 8s base (was 5s)
+        val maxBuffer = (50000 * speedMultiplier).toInt() // 50s base (was 30s)
+        val playbackBuffer = 1500  // 1.5s to start (was 1s)
+        val rebufferThreshold = (6000 * speedMultiplier).toInt() // 6s base (was 3s) - much higher!
         
         FileLogger.log("🔧 Buffer config for speed ${playbackSpeed}x: min=${minBuffer}ms, max=${maxBuffer}ms, rebuffer=${rebufferThreshold}ms", "PlayerManager")
 
@@ -61,7 +61,7 @@ class PlayerManager(
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .setTargetBufferBytes(-1)
-            .setBackBuffer(15000, true)  // Keep 15s back buffer for smoother seeking
+            .setBackBuffer(20000, true)  // Keep 20s back buffer (was 15s)
             .build()
 
         exoPlayer = ExoPlayer.Builder(context)
@@ -71,6 +71,7 @@ class PlayerManager(
                 setVideoSurface(surface)
                 playbackParameters = PlaybackParameters(playbackSpeed)
                 volume = if (audioEnabled) audioVolume else 0f
+                repeatMode = Player.REPEAT_MODE_ONE  // Loop current stream
                 
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
@@ -117,39 +118,53 @@ class PlayerManager(
         val player = exoPlayer ?: return
         val duration = player.duration
         
-        FileLogger.log("🎯 handleInitialPlayback - duration: ${duration}ms, skipEnabled: $skipBeginningEnabled, randomEnabled: $randomSeekEnabled, introEnabled: $introEnabled", "PlayerManager")
+        FileLogger.log("🎯 handleInitialPlayback - duration: ${duration}ms, skipEnabled: $skipBeginningEnabled (${skipBeginningDurationMs}ms), randomEnabled: $randomSeekEnabled, introEnabled: $introEnabled (${introDurationMs}ms)", "PlayerManager")
         
         if (duration <= 0 || duration == C.TIME_UNSET) {
             FileLogger.log("⚠️ Duration unknown, skipping initial playback setup", "PlayerManager")
             return
         }
 
-        // Priority 1: Skip beginning (takes precedence over everything)
+        // Priority 1: Skip beginning + Random seek
+        if (skipBeginningEnabled && skipBeginningDurationMs > 0 && randomSeekEnabled) {
+            val safeEndPosition = (duration * 0.9).toLong()
+            if (safeEndPosition > skipBeginningDurationMs) {
+                val seekPosition = Random.nextLong(skipBeginningDurationMs, safeEndPosition)
+                player.seekTo(seekPosition)
+                FileLogger.log("⏩🎲 Skip + Random: ${seekPosition / 1000}s (range: ${skipBeginningDurationMs / 1000}s to ${safeEndPosition / 1000}s)", "PlayerManager")
+            } else {
+                player.seekTo(skipBeginningDurationMs)
+                FileLogger.log("⏩ Skip beginning: ${skipBeginningDurationMs / 1000}s (video too short for random)", "PlayerManager")
+            }
+            return
+        }
+        
+        // Priority 2: Skip beginning only
         if (skipBeginningEnabled && skipBeginningDurationMs > 0) {
             player.seekTo(skipBeginningDurationMs)
             FileLogger.log("⏩ Skip beginning: ${skipBeginningDurationMs / 1000}s", "PlayerManager")
             return
         }
         
-        // Priority 2: Intro + Random seek (play intro THEN seek randomly)
+        // Priority 3: Intro + Random seek (play intro THEN seek randomly)
         if (introEnabled && introDurationMs > 0 && randomSeekEnabled) {
             FileLogger.log("▶️ Playing intro: ${introDurationMs / 1000}s, then will random seek", "PlayerManager")
             // Start from beginning (no seek)
             // Schedule random seek after intro duration
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                if (player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_BUFFERING) {
+                if (exoPlayer != null && (exoPlayer!!.playbackState == Player.STATE_READY || exoPlayer!!.playbackState == Player.STATE_BUFFERING)) {
                     val safeEndPosition = (duration * 0.9).toLong()
                     if (safeEndPosition > introDurationMs) {
                         val seekPosition = Random.nextLong(introDurationMs, safeEndPosition)
-                        player.seekTo(seekPosition)
-                        FileLogger.log("🎲 After intro, random seek to: ${seekPosition / 1000}s", "PlayerManager")
+                        exoPlayer!!.seekTo(seekPosition)
+                        FileLogger.log("🎲 After intro, random seek to: ${seekPosition / 1000}s (range: ${introDurationMs / 1000}s to ${safeEndPosition / 1000}s)", "PlayerManager")
                     }
                 }
             }, introDurationMs)
             return
         }
         
-        // Priority 3: Random seek only (no intro)
+        // Priority 4: Random seek only (no intro)
         if (randomSeekEnabled) {
             val safeEndPosition = (duration * 0.9).toLong()
             val startPosition = 0L
@@ -157,12 +172,12 @@ class PlayerManager(
             if (safeEndPosition > startPosition) {
                 val seekPosition = Random.nextLong(startPosition, safeEndPosition)
                 player.seekTo(seekPosition)
-                FileLogger.log("🎲 Random seek to: ${seekPosition / 1000}s (from ${startPosition / 1000}s to ${safeEndPosition / 1000}s)", "PlayerManager")
+                FileLogger.log("🎲 Random seek to: ${seekPosition / 1000}s (range: ${startPosition / 1000}s to ${safeEndPosition / 1000}s)", "PlayerManager")
             }
             return
         }
         
-        // Priority 4: Intro play only (no random seek)
+        // Priority 5: Intro play only (no random seek)
         if (introEnabled && introDurationMs > 0) {
             FileLogger.log("▶️ Playing intro: ${introDurationMs / 1000}s (no random seek)", "PlayerManager")
             // Start from beginning - no seek needed
