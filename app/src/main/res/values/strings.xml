@@ -84,9 +84,6 @@ Resume works when:
 ✓ Less than 5 minutes passed
 ✓ Resume feature enabled</string>
 
-    <string name="pref_video_scaling_title">Video Scaling</string>
-    <string name="pref_video_scaling_summary">How video fits on screen</string>
-
     <string name="pref_speed_enabled_title">Enable Speed Control</string>
     <string name="pref_speed_enabled_summary">Adjust playback speed for visual effects</string>
     <string name="pref_playback_speed_title">Playback Speed</string>
