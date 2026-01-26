@@ -124,14 +124,14 @@ class PlayerManager(
         // Return 0 for unlimited bitrate
         // Only apply caps for specific resolution + speed combinations
         return when {
-            // 1080p at 1.5x - 10 Mbps
-            resolution == 1080 && speed == 1.5f -> 10_000_000
+            // 1080p at 1.5x - 6 Mbps
+            resolution == 1080 && speed == 1.5f -> 6_000_000
             
-            // 1080p at 2.0x - 8 Mbps
-            resolution == 1080 && speed == 2.0f -> 8_000_000
+            // 1080p at 2.0x - 5 Mbps
+            resolution == 1080 && speed == 2.0f -> 5_000_000
             
-            // 720p at 2.0x - 5 Mbps
-            resolution == 720 && speed == 2.0f -> 5_000_000
+            // 720p at 2.0x - 3 Mbps
+            resolution == 720 && speed == 2.0f -> 3_000_000
             
             // All other combinations: unlimited
             else -> 0
