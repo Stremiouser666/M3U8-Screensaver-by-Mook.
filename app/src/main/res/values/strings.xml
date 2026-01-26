@@ -93,26 +93,6 @@ Video-only modes use less bandwidth and work better on older devices. Background
 
 This setting applies to both YouTube and Rutube videos.</string>
 
-    <string name="pref_resume_behavior_title">Playback Behavior</string>
-    <string name="pref_resume_behavior_summary">Tap to learn how Resume and Random Seek work together</string>
-    <string name="pref_resume_behavior_info">How Resume interacts with Random Seek:
-
-• Resume OFF + Random Seek ON
-Always start at random position
-
-• Resume ON + Random Seek OFF
-Always resume from last position
-A toast will show the resumed timestamp
-
-• Resume ON + Random Seek ON
-Smart mode: resume if recent, otherwise random
-A toast will show if resuming or seeking randomly
-
-Resume works when:
-✓ Same URL is still set
-✓ Less than 5 minutes passed
-✓ Resume feature enabled</string>
-
     <string name="pref_speed_enabled_title">Enable Speed Control</string>
     <string name="pref_speed_enabled_summary">Adjust playback speed for visual effects</string>
     <string name="pref_playback_speed_title">Playback Speed</string>
@@ -165,9 +145,7 @@ For YouTube videos at 1080p, 1440p, or 4K quality, the maximum playback speed is
     <string name="pref_category_debug">Debug Info</string>
 
     <string name="pref_debug_enabled_title">Enable Debug Logging</string>
-    <string name="pref_debug_enabled_summary">
-Save timing and performance data to /sdcard/Download/playback_timing.txt
-    </string>
+    <string name="pref_debug_enabled_summary">Save timing and performance data to /sdcard/Download/playback_timing.txt</string>
 
     <string name="pref_stats_enabled_title">Enable Stats Overlay</string>
     <string name="pref_stats_enabled_summary">Show playback statistics (for troubleshooting)</string>
