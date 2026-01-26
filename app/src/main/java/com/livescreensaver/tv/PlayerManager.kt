@@ -127,11 +127,11 @@ class PlayerManager(
             // 1080p at 1.5x - 6 Mbps
             resolution == 1080 && speed == 1.5f -> 6_000_000
             
-            // 1080p at 2.0x - 5 Mbps
-            resolution == 1080 && speed == 2.0f -> 5_000_000
+            // 1080p at 2.0x - 2.5 Mbps
+            resolution == 1080 && speed == 2.0f -> 2_500_000
             
-            // 720p at 2.0x - 3 Mbps
-            resolution == 720 && speed == 2.0f -> 3_000_000
+            // 720p at 2.0x - 1.5 Mbps
+            resolution == 720 && speed == 2.0f -> 1_500_000
             
             // All other combinations: unlimited
             else -> 0
