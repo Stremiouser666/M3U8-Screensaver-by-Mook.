@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.FragmentActivity
 import androidx.leanback.preference.LeanbackPreferenceFragmentCompat
 import androidx.leanback.preference.LeanbackSettingsFragmentCompat
@@ -285,133 +286,165 @@ class SettingsActivity : FragmentActivity() {
             scheduleCategory.addPreference(clearSchedulePref)
 
             // === PLAYBACK CONTROL SECTION ===
-val playbackCategory = PreferenceCategory(context).apply {
-    key = "category_playback"
-    title = getString(R.string.pref_category_playback)
-}
-screen.addPreference(playbackCategory)
+            val playbackCategory = PreferenceCategory(context).apply {
+                key = "category_playback"
+                title = getString(R.string.pref_category_playback)
+            }
+            screen.addPreference(playbackCategory)
 
-val introEnabledPref = SwitchPreference(context).apply {
-    key = "intro_enabled"
-    title = getString(R.string.pref_intro_enabled_title)
-    summary = getString(R.string.pref_intro_enabled_summary)
-    setDefaultValue(true)
+            val introEnabledPref = SwitchPreference(context).apply {
+                key = "intro_enabled"
+                title = getString(R.string.pref_intro_enabled_title)
+                summary = getString(R.string.pref_intro_enabled_summary)
+                setDefaultValue(true)
 
-    setOnPreferenceChangeListener { _, newValue ->
-        updateIntroVisibility(newValue as Boolean)
-        true
-    }
-}
-playbackCategory.addPreference(introEnabledPref)
+                setOnPreferenceChangeListener { _, newValue ->
+                    updateIntroVisibility(newValue as Boolean)
+                    true
+                }
+            }
+            playbackCategory.addPreference(introEnabledPref)
 
-val introDurationPref = EditTextPreference(context).apply {
-    key = "intro_duration"
-    title = getString(R.string.pref_intro_duration_title)
-    summary = getString(R.string.pref_intro_duration_summary)
-    isVisible = introEnabledPref.isChecked
+            val introDurationPref = EditTextPreference(context).apply {
+                key = "intro_duration"
+                title = getString(R.string.pref_intro_duration_title)
+                summary = getString(R.string.pref_intro_duration_summary)
+                isVisible = introEnabledPref.isChecked
 
-    setOnBindEditTextListener { editText ->
-        editText.inputType = android.text.InputType.TYPE_CLASS_NUMBER
-        editText.setText("")
-        editText.hint = "Seconds"
-    }
-}
-playbackCategory.addPreference(introDurationPref)
+                setOnBindEditTextListener { editText ->
+                    editText.inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                    editText.setText("")
+                    editText.hint = "Seconds"
+                }
+            }
+            playbackCategory.addPreference(introDurationPref)
 
-val skipBeginningEnabledPref = SwitchPreference(context).apply {
-    key = "skip_beginning_enabled"
-    title = getString(R.string.pref_skip_beginning_enabled_title)
-    summary = getString(R.string.pref_skip_beginning_enabled_summary)
-    setDefaultValue(false)
+            val skipBeginningEnabledPref = SwitchPreference(context).apply {
+                key = "skip_beginning_enabled"
+                title = getString(R.string.pref_skip_beginning_enabled_title)
+                summary = getString(R.string.pref_skip_beginning_enabled_summary)
+                setDefaultValue(false)
 
-    setOnPreferenceChangeListener { _, newValue ->
-        updateSkipBeginningVisibility(newValue as Boolean)
-        true
-    }
-}
-playbackCategory.addPreference(skipBeginningEnabledPref)
+                setOnPreferenceChangeListener { _, newValue ->
+                    updateSkipBeginningVisibility(newValue as Boolean)
+                    true
+                }
+            }
+            playbackCategory.addPreference(skipBeginningEnabledPref)
 
-val skipBeginningDurationPref = EditTextPreference(context).apply {
-    key = "skip_beginning_duration"
-    title = getString(R.string.pref_skip_beginning_duration_title)
-    summary = getString(R.string.pref_skip_beginning_duration_summary)
-    isVisible = skipBeginningEnabledPref.isChecked
+            val skipBeginningDurationPref = EditTextPreference(context).apply {
+                key = "skip_beginning_duration"
+                title = getString(R.string.pref_skip_beginning_duration_title)
+                summary = getString(R.string.pref_skip_beginning_duration_summary)
+                isVisible = skipBeginningEnabledPref.isChecked
 
-    setOnBindEditTextListener { editText ->
-        editText.inputType = android.text.InputType.TYPE_CLASS_NUMBER
-        editText.setText("")
-        editText.hint = "Seconds"
-    }
-}
-playbackCategory.addPreference(skipBeginningDurationPref)
+                setOnBindEditTextListener { editText ->
+                    editText.inputType = android.text.InputType.TYPE_CLASS_NUMBER
+                    editText.setText("")
+                    editText.hint = "Seconds"
+                }
+            }
+            playbackCategory.addPreference(skipBeginningDurationPref)
 
-val randomSeekEnabledPref = SwitchPreference(context).apply {
-    key = "random_seek_enabled"
-    title = getString(R.string.pref_random_seek_enabled_title)
-    summary = getString(R.string.pref_random_seek_enabled_summary)
-    setDefaultValue(true)
-}
-playbackCategory.addPreference(randomSeekEnabledPref)
+            val randomSeekEnabledPref = SwitchPreference(context).apply {
+                key = "random_seek_enabled"
+                title = getString(R.string.pref_random_seek_enabled_title)
+                summary = getString(R.string.pref_random_seek_enabled_summary)
+                setDefaultValue(true)
+            }
+            playbackCategory.addPreference(randomSeekEnabledPref)
 
-val speedEnabledPref = SwitchPreference(context).apply {
-    key = "speed_enabled"
-    title = getString(R.string.pref_speed_enabled_title)
-    summary = getString(R.string.pref_speed_enabled_summary)
-    setDefaultValue(false)
+            val speedEnabledPref = SwitchPreference(context).apply {
+                key = "speed_enabled"
+                title = getString(R.string.pref_speed_enabled_title)
+                summary = getString(R.string.pref_speed_enabled_summary)
+                setDefaultValue(false)
 
-    setOnPreferenceChangeListener { _, newValue ->
-        updateSpeedVisibility(newValue as Boolean)
-        true
-    }
-}
-playbackCategory.addPreference(speedEnabledPref)
+                setOnPreferenceChangeListener { _, newValue ->
+                    updateSpeedVisibility(newValue as Boolean)
+                    true
+                }
+            }
+            playbackCategory.addPreference(speedEnabledPref)
 
-val playbackSpeedPref = ListPreference(context).apply {
-    key = "playback_speed"
-    title = getString(R.string.pref_playback_speed_title)
-    summary = getString(R.string.pref_playback_speed_summary)
-    entries = resources.getStringArray(R.array.playback_speed_entries)
-    entryValues = resources.getStringArray(R.array.playback_speed_values)
-    setDefaultValue("1.0")
-    isVisible = speedEnabledPref.isChecked
-    summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
-}
-playbackCategory.addPreference(playbackSpeedPref)
+            val playbackSpeedPref = ListPreference(context).apply {
+                key = "playback_speed"
+                title = getString(R.string.pref_playback_speed_title)
+                summary = getString(R.string.pref_playback_speed_summary)
+                entries = resources.getStringArray(R.array.playback_speed_entries)
+                entryValues = resources.getStringArray(R.array.playback_speed_values)
+                setDefaultValue("1.0")
+                isVisible = speedEnabledPref.isChecked
+                summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
+            }
+            playbackCategory.addPreference(playbackSpeedPref)
 
-val resumeEnabledPref = SwitchPreference(context).apply {
-    key = "resume_enabled"
-    title = getString(R.string.pref_resume_enabled_title)
-    summary = getString(R.string.pref_resume_enabled_summary)
-    setDefaultValue(false)
-}
-playbackCategory.addPreference(resumeEnabledPref)
+            val playbackSpeedInfoPref = Preference(context).apply {
+                key = "playback_speed_info"
+                title = getString(R.string.pref_playback_speed_info_title)
+                summary = getString(R.string.pref_playback_speed_info_summary)
+                
+                setOnPreferenceClickListener {
+                    AlertDialog.Builder(requireContext())
+                        .setTitle(getString(R.string.pref_playback_speed_info_title))
+                        .setMessage(getString(R.string.pref_playback_speed_info_details))
+                        .setPositiveButton("OK") { dialog, _ -> dialog.dismiss() }
+                        .show()
+                    true
+                }
+            }
+            playbackCategory.addPreference(playbackSpeedInfoPref)
 
-val resumeInfoPref = Preference(context).apply {
-    key = "resume_info"
-    title = getString(R.string.pref_resume_behavior_title)
-    summary = getString(R.string.pref_resume_behavior_info)
-    isSelectable = false
-}
-playbackCategory.addPreference(resumeInfoPref)
+            val resumeEnabledPref = SwitchPreference(context).apply {
+                key = "resume_enabled"
+                title = getString(R.string.pref_resume_enabled_title)
+                summary = getString(R.string.pref_resume_enabled_summary)
+                setDefaultValue(false)
+            }
+            playbackCategory.addPreference(resumeEnabledPref)
 
-val youtubeQualityModePref = ListPreference(context).apply {
-    key = "youtube_quality_mode"
-    title = getString(R.string.pref_youtube_quality_mode_title)
-    summary = getString(R.string.pref_youtube_quality_mode_summary)
-    entries = resources.getStringArray(R.array.youtube_quality_mode_entries)
-    entryValues = resources.getStringArray(R.array.youtube_quality_mode_values)
-    setDefaultValue("360_progressive")
-    summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
-}
-playbackCategory.addPreference(youtubeQualityModePref)
+            val resumeInfoPref = Preference(context).apply {
+                key = "resume_info"
+                title = getString(R.string.pref_resume_behavior_title)
+                summary = getString(R.string.pref_resume_behavior_summary)
+                
+                setOnPreferenceClickListener {
+                    AlertDialog.Builder(requireContext())
+                        .setTitle(getString(R.string.pref_resume_behavior_title))
+                        .setMessage(getString(R.string.pref_resume_behavior_info))
+                        .setPositiveButton("OK") { dialog, _ -> dialog.dismiss() }
+                        .show()
+                    true
+                }
+            }
+            playbackCategory.addPreference(resumeInfoPref)
 
-val youtubeQualityInfoPref = Preference(context).apply {
-    key = "youtube_quality_info"
-    title = getString(R.string.pref_youtube_quality_info_title)
-    summary = getString(R.string.pref_youtube_quality_info_summary)
-    isSelectable = false
-}
-playbackCategory.addPreference(youtubeQualityInfoPref)
+            val youtubeQualityModePref = ListPreference(context).apply {
+                key = "youtube_quality_mode"
+                title = getString(R.string.pref_youtube_quality_mode_title)
+                summary = getString(R.string.pref_youtube_quality_mode_summary)
+                entries = resources.getStringArray(R.array.youtube_quality_mode_entries)
+                entryValues = resources.getStringArray(R.array.youtube_quality_mode_values)
+                setDefaultValue("360_progressive")
+                summaryProvider = ListPreference.SimpleSummaryProvider.getInstance()
+            }
+            playbackCategory.addPreference(youtubeQualityModePref)
+
+            val youtubeQualityInfoPref = Preference(context).apply {
+                key = "youtube_quality_info"
+                title = getString(R.string.pref_youtube_quality_info_title)
+                summary = getString(R.string.pref_youtube_quality_info_summary)
+                
+                setOnPreferenceClickListener {
+                    AlertDialog.Builder(requireContext())
+                        .setTitle(getString(R.string.pref_youtube_quality_info_title))
+                        .setMessage(getString(R.string.pref_youtube_quality_info_details))
+                        .setPositiveButton("OK") { dialog, _ -> dialog.dismiss() }
+                        .show()
+                    true
+                }
+            }
+            playbackCategory.addPreference(youtubeQualityInfoPref)
 
             // === AUDIO SECTION ===
             val audioCategory = PreferenceCategory(context).apply {
@@ -446,7 +479,7 @@ playbackCategory.addPreference(youtubeQualityInfoPref)
             audioCategory.addPreference(audioVolumePref)
 
             // === CLOCK OVERLAY SECTION ===
-val clockCategory = PreferenceCategory(context).apply {
+            val clockCategory = PreferenceCategory(context).apply {
                 key = "category_clock"
                 title = getString(R.string.pref_category_clock)
             }
