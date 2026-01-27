@@ -54,7 +54,7 @@
     <string name="pref_skip_beginning_duration_summary">How many seconds to skip from start (0–600 seconds)</string>
 
     <string name="pref_random_seek_enabled_title">Enable Random Seek</string>
-    <string name="pref_random_seek_enabled_summary">Jump to random position in video after intro</string>
+    <string name="pref_random_seek_enabled_summary">Jump to random position in video</string>
 
     <string name="pref_resume_enabled_title">Resume Playback</string>
     <string name="pref_resume_enabled_summary">Continue from last position when screensaver restarts</string>
