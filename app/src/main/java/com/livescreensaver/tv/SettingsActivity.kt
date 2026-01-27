@@ -679,7 +679,6 @@ class SettingsActivity : FragmentActivity() {
 
             preferenceScreen = screen
         }
-
         private fun updateScheduleVisibility(enabled: Boolean) {
             findPreference<SwitchPreference>("schedule_random_mode")?.isVisible = enabled
             findPreference<Preference>("clear_schedule_button")?.isVisible = enabled
@@ -878,7 +877,7 @@ class SettingsActivity : FragmentActivity() {
 
         private fun String.capitalize() = this.replaceFirstChar { it.uppercase() }
     }
-}
+
         private fun launchScreensaverTest() {
             try {
                 val intent = Intent(Intent.ACTION_MAIN).apply {
