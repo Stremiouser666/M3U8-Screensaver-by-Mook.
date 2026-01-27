@@ -881,8 +881,14 @@ class SettingsActivity : FragmentActivity() {
 }
         private fun launchScreensaverTest() {
             try {
-                val intent = Intent(requireContext(), LiveScreensaverService::class.java)
-                requireContext().startService(intent)
+                val intent = Intent(Intent.ACTION_MAIN).apply {
+                    setClassName(
+                        requireContext().packageName,
+                        "com.livescreensaver.tv.LiveScreensaverService"
+                    )
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                requireContext().startActivity(intent)
                 
                 showToast(getString(R.string.toast_screensaver_launching))
                 Log.d(TAG, "Test screensaver launched")
