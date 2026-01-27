@@ -3,73 +3,72 @@ package com.livescreensaver.tv
 import android.content.SharedPreferences
 import android.util.Log
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.analytics.AnalyticsListener
 import java.text.SimpleDateFormat
 import java.util.*
 
-class BandwidthTracker(private val bandwidthPrefs: SharedPreferences) : AnalyticsListener {
+class BandwidthTracker(private val bandwidthPrefs: SharedPreferences) {
     companion object {
         private const val TAG = "BandwidthTracker"
         private const val KEY_BANDWIDTH_PREFIX = "bandwidth_"
-        private const val BITRATE_TIMEOUT_MS = 5000L
+        private const val DEFAULT_BITRATE_KBPS = 3000 // Fallback estimate
     }
 
     private var currentSessionBytes = 0L
-    private var sessionStartTimeMs = 0L
-    private var lastCheckTimeMs = 0L
+    private var lastPositionMs = 0L
     private var currentBitrateKbps = 0
     private var totalPlayedTimeMs = 0L
-    private var bitrateUnavailable = false
-    private var totalBytesLoaded = 0L
-
-    override fun onLoadCompleted(
-        eventTime: AnalyticsListener.EventTime,
-        loadEventInfo: androidx.media3.exoplayer.source.LoadEventInfo,
-        mediaLoadData: androidx.media3.exoplayer.source.MediaLoadData
-    ) {
-        // Track actual bytes loaded from network
-        totalBytesLoaded += loadEventInfo.bytesLoaded
-    }
+    private var hasStarted = false
 
     fun trackBandwidth(player: ExoPlayer?) {
         try {
             player?.let { p ->
-                val currentTimeMs = System.currentTimeMillis()
+                val currentPositionMs = p.currentPosition
                 
-                // Initialize session start time on first call
-                if (sessionStartTimeMs == 0L) {
-                    sessionStartTimeMs = currentTimeMs
-                    // Attach this as an analytics listener to track loaded bytes
-                    p.addAnalyticsListener(this)
+                // Initialize on first call
+                if (!hasStarted) {
+                    lastPositionMs = currentPositionMs
+                    hasStarted = true
+                    Log.d(TAG, "Bandwidth tracking started")
+                    return
                 }
                 
-                // Calculate elapsed time since last check
-                if (lastCheckTimeMs > 0) {
-                    val elapsedMs = currentTimeMs - lastCheckTimeMs
-                    totalPlayedTimeMs += elapsedMs
+                // Calculate playback progress
+                val playbackProgressMs = currentPositionMs - lastPositionMs
+                
+                // Only track if position advanced (video is playing)
+                if (playbackProgressMs > 100) { // At least 100ms progress
+                    totalPlayedTimeMs += playbackProgressMs
                     
-                    // Update session bytes from actual loaded data
-                    currentSessionBytes = totalBytesLoaded
-                    
-                    // Calculate actual average bitrate from total data / total time
-                    if (totalPlayedTimeMs > 1000 && currentSessionBytes > 0) {
-                        val totalSeconds = totalPlayedTimeMs / 1000.0
-                        // bitrate (kbps) = (bytes * 8) / seconds / 1000
-                        currentBitrateKbps = ((currentSessionBytes * 8.0) / totalSeconds / 1000.0).toInt()
+                    // Get bitrate from format or use default
+                    val videoFormat = p.videoFormat
+                    val estimatedBitrateKbps = if (videoFormat != null && videoFormat.bitrate > 0) {
+                        videoFormat.bitrate / 1000
+                    } else {
+                        DEFAULT_BITRATE_KBPS
                     }
                     
-                    // Save every ~1MB to avoid data loss
+                    // Calculate bytes consumed
+                    val playbackSeconds = playbackProgressMs / 1000.0
+                    val bytesConsumed = ((estimatedBitrateKbps * 1000.0 / 8.0) * playbackSeconds).toLong()
+                    currentSessionBytes += bytesConsumed
+                    
+                    // Calculate average bitrate
+                    if (totalPlayedTimeMs > 1000) {
+                        val totalSeconds = totalPlayedTimeMs / 1000.0
+                        currentBitrateKbps = ((currentSessionBytes * 8.0) / totalSeconds / 1000.0).toInt()
+                    } else {
+                        currentBitrateKbps = estimatedBitrateKbps
+                    }
+                    
+                    Log.d(TAG, "Progress: ${playbackProgressMs}ms, Bytes: +${bytesConsumed}, Total: ${currentSessionBytes}, Bitrate: ${currentBitrateKbps} kbps")
+                    
+                    // Save every ~1MB
                     if (currentSessionBytes > 1_000_000) {
                         saveDailyBandwidth()
                     }
                 }
                 
-                // Check if timeout reached without any bitrate data
-                if (currentBitrateKbps == 0 && currentTimeMs - sessionStartTimeMs > BITRATE_TIMEOUT_MS) {
-                    bitrateUnavailable = true
-                }
-                
-                lastCheckTimeMs = currentTimeMs
+                lastPositionMs = currentPositionMs
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to track bandwidth", e)
@@ -81,7 +80,7 @@ class BandwidthTracker(private val bandwidthPrefs: SharedPreferences) : Analytic
     }
 
     fun isBitrateUnavailable(): Boolean {
-        return bitrateUnavailable
+        return false // Always try to calculate
     }
 
     fun saveDailyBandwidth() {
@@ -93,10 +92,7 @@ class BandwidthTracker(private val bandwidthPrefs: SharedPreferences) : Analytic
             val newTotal = currentTotal + currentSessionBytes
             bandwidthPrefs.edit().putLong(dateKey, newTotal).apply()
             Log.d(TAG, "Saved ${currentSessionBytes / 1_000_000}MB to daily bandwidth (avg bitrate: $currentBitrateKbps kbps)")
-            
-            // Reset session bytes but keep totalBytesLoaded for continued tracking
             currentSessionBytes = 0L
-            totalBytesLoaded = 0L
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save daily bandwidth", e)
         }
@@ -140,12 +136,10 @@ class BandwidthTracker(private val bandwidthPrefs: SharedPreferences) : Analytic
 
     fun reset() {
         currentSessionBytes = 0L
-        sessionStartTimeMs = 0L
-        lastCheckTimeMs = 0L
+        lastPositionMs = 0L
         currentBitrateKbps = 0
         totalPlayedTimeMs = 0L
-        bitrateUnavailable = false
-        totalBytesLoaded = 0L
+        hasStarted = false
     }
 
     private fun formatBytes(bytes: Long): Pair<Double, String> {
