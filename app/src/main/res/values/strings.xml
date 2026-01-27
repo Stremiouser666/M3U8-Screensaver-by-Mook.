@@ -73,8 +73,8 @@ Always resume from last position
 Smart mode: resume if recent, otherwise random
 
 \n•Resume works when:
-✓ Same URL is still set
-✓ Resume feature enabled</string>
+\n✓ Same URL is still set
+\n✓ Resume feature enabled</string>
 
     <string name="pref_preferred_resolution_title">Preferred Resolution</string>
     <string name="pref_preferred_resolution_summary">Select video resolution quality</string>
@@ -96,12 +96,12 @@ Smart mode: resume if recent, otherwise random
     <string name="pref_playback_speed_info_title">Speed Information</string>
     <string name="pref_playback_speed_info_summary">Tap to learn about speed limitations</string>
     <string name="pref_playback_speed_info_details">Playback Speed Options:
-0.25x, 0.5x, 0.75x, 1.0x (normal), 1.25x, 1.5x, 2.0x
+\n0.25x, 0.5x, 0.75x, 1.0x (normal), 1.25x, 1.5x, 2.0x
 
-⚠️ Important Limitation:
+\n⚠️ Important Limitation:
 2x speed is NOT recommended for YouTube videos above 720p resolution.
 
-For YouTube videos at 1080p, 1440p, or 4K quality, the maximum recommended playback speed is 1x or slower.</string>
+\nFor YouTube videos at 1080p, 1440p, or 4K quality, the maximum recommended playback speed is 1x or slower.</string>
 
     <!-- Audio -->
     <string name="pref_category_audio">Audio</string>
