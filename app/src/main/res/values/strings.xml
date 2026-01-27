@@ -1,215 +1,149 @@
-package com.livescreensaver.tv
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
 
-import android.content.ComponentName
-import android.content.Intent
-import android.os.Bundle
-import android.widget.Toast
-import androidx.preference.EditTextPreference
-import androidx.preference.Preference
-import androidx.preference.PreferenceFragmentCompat
-import androidx.preference.SwitchPreferenceCompat
-import androidx.preference.ListPreference
-import androidx.appcompat.app.AppCompatActivity
+    <!-- App Name -->
+    <string name="app_name">Live Screensaver</string>
 
-class SettingsActivity : AppCompatActivity() {
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_settings)
-        
-        if (savedInstanceState == null) {
-            supportFragmentManager
-                .beginTransaction()
-                .replace(R.id.settings_container, SettingsFragment())
-                .commit()
-        }
-        
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
-    }
-    
-    class SettingsFragment : PreferenceFragmentCompat() {
-        private lateinit var preferenceManager: PreferenceManager
-        
-        override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
-            setPreferencesFromResource(R.xml.preferences, rootKey)
-            
-            preferenceManager = PreferenceManager(requireContext())
-            
-            setupStreamUrl()
-            setupDisplaySettings()
-            setupPlaybackSettings()
-            setupScheduleSettings()
-            setupAdvancedSettings()
-            setupTestScreensaver()
-        }
-        
-        private fun setupStreamUrl() {
-            findPreference<EditTextPreference>("stream_url")?.apply {
-                summary = preferenceManager.getStreamUrl().ifEmpty { 
-                    getString(R.string.stream_url_hint) 
-                }
-                
-                setOnPreferenceChangeListener { _, newValue ->
-                    val url = newValue as String
-                    if (url.isNotEmpty() && isValidUrl(url)) {
-                        preferenceManager.setStreamUrl(url)
-                        summary = url
-                        true
-                    } else {
-                        Toast.makeText(
-                            requireContext(), 
-                            R.string.invalid_url, 
-                            Toast.LENGTH_SHORT
-                        ).show()
-                        false
-                    }
-                }
-            }
-        }
-        
-        private fun setupDisplaySettings() {
-            findPreference<SwitchPreferenceCompat>("show_clock")?.apply {
-                isChecked = preferenceManager.getShowClock()
-                setOnPreferenceChangeListener { _, newValue ->
-                    preferenceManager.setShowClock(newValue as Boolean)
-                    true
-                }
-            }
-            
-            findPreference<SwitchPreferenceCompat>("show_date")?.apply {
-                isChecked = preferenceManager.getShowDate()
-                setOnPreferenceChangeListener { _, newValue ->
-                    preferenceManager.setShowDate(newValue as Boolean)
-                    true
-                }
-            }
-            
-            findPreference<SwitchPreferenceCompat>("show_channel_name")?.apply {
-                isChecked = preferenceManager.getShowChannelName()
-                setOnPreferenceChangeListener { _, newValue ->
-                    preferenceManager.setShowChannelName(newValue as Boolean)
-                    true
-                }
-            }
-            
-            findPreference<SwitchPreferenceCompat>("show_channel_logo")?.apply {
-                isChecked = preferenceManager.getShowChannelLogo()
-                setOnPreferenceChangeListener { _, newValue ->
-                    preferenceManager.setShowChannelLogo(newValue as Boolean)
-                    true
-                }
-            }
-        }
-        
-        private fun setupPlaybackSettings() {
-            findPreference<SwitchPreferenceCompat>("auto_quality")?.apply {
-                isChecked = preferenceManager.getAutoQuality()
-                setOnPreferenceChangeListener { _, newValue ->
-                    preferenceManager.setAutoQuality(newValue as Boolean)
-                    findPreference<ListPreference>("preferred_quality")?.isEnabled = !(newValue as Boolean)
-                    true
-                }
-            }
-            
-            findPreference<ListPreference>("preferred_quality")?.apply {
-                isEnabled = !preferenceManager.getAutoQuality()
-                value = preferenceManager.getPreferredQuality()
-                setOnPreferenceChangeListener { _, newValue ->
-                    preferenceManager.setPreferredQuality(newValue as String)
-                    true
-                }
-            }
-        }
-        
-        private fun setupScheduleSettings() {
-            findPreference<SwitchPreferenceCompat>("enable_schedule")?.apply {
-                isChecked = preferenceManager.getScheduleEnabled()
-                setOnPreferenceChangeListener { _, newValue ->
-                    preferenceManager.setScheduleEnabled(newValue as Boolean)
-                    val enabled = newValue as Boolean
-                    findPreference<Preference>("start_time")?.isEnabled = enabled
-                    findPreference<Preference>("end_time")?.isEnabled = enabled
-                    true
-                }
-            }
-            
-            val scheduleEnabled = preferenceManager.getScheduleEnabled()
-            findPreference<Preference>("start_time")?.isEnabled = scheduleEnabled
-            findPreference<Preference>("end_time")?.isEnabled = scheduleEnabled
-        }
-        
-        private fun setupAdvancedSettings() {
-            findPreference<SwitchPreferenceCompat>("enable_logging")?.apply {
-                isChecked = preferenceManager.getLoggingEnabled()
-                setOnPreferenceChangeListener { _, newValue ->
-                    preferenceManager.setLoggingEnabled(newValue as Boolean)
-                    true
-                }
-            }
-            
-            findPreference<ListPreference>("buffer_size")?.apply {
-                value = preferenceManager.getBufferSize().toString()
-                setOnPreferenceChangeListener { _, newValue ->
-                    preferenceManager.setBufferSize((newValue as String).toInt())
-                    true
-                }
-            }
-        }
-        
-        private fun setupTestScreensaver() {
-            findPreference<Preference>("test_screensaver")?.apply {
-                setOnPreferenceClickListener {
-                    launchScreensaver()
-                    true
-                }
-            }
-        }
-        
-        private fun launchScreensaver() {
-            val streamUrl = preferenceManager.getStreamUrl()
-            
-            if (streamUrl.isEmpty()) {
-                Toast.makeText(
-                    requireContext(),
-                    R.string.url_required,
-                    Toast.LENGTH_SHORT
-                ).show()
-                return
-            }
-            
-            try {
-                val intent = Intent(Intent.ACTION_ATTACH_DATA).apply {
-                    component = ComponentName(
-                        requireContext(),
-                        LiveScreensaverService::class.java
-                    )
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                
-                // Start the screensaver service directly
-                requireContext().startService(
-                    Intent(requireContext(), LiveScreensaverService::class.java)
-                )
-                
-                Toast.makeText(
-                    requireContext(),
-                    "Launching screensaver...",
-                    Toast.LENGTH_SHORT
-                ).show()
-                
-            } catch (e: Exception) {
-                Toast.makeText(
-                    requireContext(),
-                    "Error launching screensaver: ${e.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-        }
-        
-        private fun isValidUrl(url: String): Boolean {
-            return url.startsWith("http://") || 
-                   url.startsWith("https://") ||
-                   url.startsWith("rtmp://") ||
-                   url.startsWith("rtsp://")
-        }
-    }
-}
+    <!-- String helper for capitalize -->
+    <string name="string_capitalize">CAPITALIZE_ME</string>
+
+    <!-- Main URL Settings -->
+    <string name="pref_video_url_title">Main URL</string>
+    <string name="pref_video_url_summary">Enter YouTube, Rutube, or HLS URL (.m3u8)</string>
+    <string name="pref_clear_url_title">Clear URL</string>
+    <string name="pref_clear_url_summary">Clear current URL (will use default stream if left empty)</string>
+    <string name="pref_disable_url_title">Disable This URL</string>
+
+    <!-- Weekly Schedule -->
+    <string name="pref_category_schedule">Weekly Schedule</string>
+    <string name="pref_schedule_enabled_title">Enable Weekly Schedule</string>
+    <string name="pref_schedule_enabled_summary">Use different URLs for each day of the week</string>
+    <string name="pref_schedule_random_title">Randomize URLs</string>
+    <string name="pref_schedule_random_summary">Pick random URL from weekly schedule instead of using day-specific URLs</string>
+
+    <string name="pref_url_monday_title">Monday Stream URL</string>
+    <string name="pref_clear_monday_title">Clear Monday URL</string>
+    <string name="pref_url_tuesday_title">Tuesday Stream URL</string>
+    <string name="pref_clear_tuesday_title">Clear Tuesday URL</string>
+    <string name="pref_url_wednesday_title">Wednesday Stream URL</string>
+    <string name="pref_clear_wednesday_title">Clear Wednesday URL</string>
+    <string name="pref_url_thursday_title">Thursday Stream URL</string>
+    <string name="pref_clear_thursday_title">Clear Thursday URL</string>
+    <string name="pref_url_friday_title">Friday Stream URL</string>
+    <string name="pref_clear_friday_title">Clear Friday URL</string>
+    <string name="pref_url_saturday_title">Saturday Stream URL</string>
+    <string name="pref_clear_saturday_title">Clear Saturday URL</string>
+    <string name="pref_url_sunday_title">Sunday Stream URL</string>
+    <string name="pref_clear_sunday_title">Clear Sunday URL</string>
+
+    <string name="pref_url_day_summary">Leave empty to use default URL</string>
+    <string name="pref_clear_schedule_title">Clear All Schedule URLs</string>
+    <string name="pref_clear_schedule_summary">Remove all weekly schedule URLs</string>
+
+    <!-- Playback Control -->
+    <string name="pref_category_playback">Playback Control</string>
+
+    <string name="pref_intro_enabled_title">Enable Intro Playback</string>
+    <string name="pref_intro_enabled_summary">Play beginning of video before jumping to random position</string>
+    <string name="pref_intro_duration_title">Intro Duration (seconds)</string>
+    <string name="pref_intro_duration_summary">How long to play before seeking (1–60 seconds)</string>
+
+    <string name="pref_skip_beginning_enabled_title">Skip Beginning</string>
+    <string name="pref_skip_beginning_enabled_summary">Skip the first X seconds of the video</string>
+    <string name="pref_skip_beginning_duration_title">Skip Duration (seconds)</string>
+    <string name="pref_skip_beginning_duration_summary">How many seconds to skip from start (0–600 seconds)</string>
+
+    <string name="pref_random_seek_enabled_title">Enable Random Seek</string>
+    <string name="pref_random_seek_enabled_summary">Jump to random position in video</string>
+
+    <string name="pref_resume_enabled_title">Resume Playback</string>
+    <string name="pref_resume_enabled_summary">Continue from last position when screensaver restarts</string>
+
+    <string name="pref_resume_behavior_title">Playback Behavior</string>
+    <string name="pref_resume_behavior_summary">Tap to learn how Resume and Random Seek work together</string>
+    <string name="pref_resume_behavior_info">How Resume interacts with Random Seek:\n\n• Resume OFF + Random Seek ON\nAlways start at random position\n\n• Resume ON + Random Seek OFF\nAlways resume from last position\n\n• Resume ON + Random Seek ON\nSmart mode: resume if recent, otherwise random\n\n•Resume works when:\n✓ Same URL is still set\n✓ Resume feature enabled</string>
+
+    <string name="pref_preferred_resolution_title">Preferred Resolution</string>
+    <string name="pref_preferred_resolution_summary">Select video resolution quality</string>
+
+    <string name="pref_youtube_quality_mode_title">YouTube/Rutube Quality</string>
+    <string name="pref_youtube_quality_mode_summary">Choose quality for YouTube and Rutube videos</string>
+    <string name="pref_youtube_quality_info_title">Quality Mode Information</string>
+    <string name="pref_youtube_quality_info_summary">Tap to learn about quality modes and how they work</string>
+    <string name="pref_youtube_quality_info_details">• 360p: Single stream with audio (works on all devices)\n• 480p-4K: Youtube Videos only\n• 360p-4K: Rutube has video and audio\n\n• Video-only modes use less bandwidth and work better on older devices. This setting applies to  YouTube videos only.</string>
+
+    <string name="pref_speed_enabled_title">Enable Speed Control</string>
+    <string name="pref_speed_enabled_summary">Adjust playback speed for visual effects</string>
+    <string name="pref_playback_speed_title">Playback Speed</string>
+    <string name="pref_playback_speed_summary">Video playback speed</string>
+    <string name="pref_playback_speed_info_title">Speed Information</string>
+    <string name="pref_playback_speed_info_summary">Tap to learn about speed limitations</string>
+    <string name="pref_playback_speed_info_details">Playback Speed Options:\n0.25x, 0.5x, 0.75x, 1.0x (normal), 1.25x, 1.5x, 2.0x\n\n⚠️ Important Limitation:\n2x speed is NOT recommended for YouTube videos above 720p resolution.\n\nFor YouTube videos at 1080p, 1440p, or 4K quality, the maximum recommended playback speed is 1x or slower.</string>
+
+    <!-- Audio -->
+    <string name="pref_category_audio">Audio</string>
+    <string name="pref_audio_enabled_title">Enable Audio</string>
+    <string name="pref_audio_enabled_summary">Play audio through TV speakers</string>
+    <string name="pref_audio_volume_title">Volume Level</string>
+    <string name="pref_audio_volume_summary">Audio volume percentage</string>
+
+    <!-- Clock Overlay -->
+    <string name="pref_category_clock">Clock Overlay</string>
+    <string name="pref_clock_enabled_title">Enable Clock</string>
+    <string name="pref_clock_enabled_summary">Show current time on screen</string>
+    <string name="pref_clock_position_title">Clock Position</string>
+    <string name="pref_clock_position_summary">Corner placement for clock</string>
+    <string name="pref_clock_size_title">Clock Size</string>
+    <string name="pref_clock_size_summary">Text size for clock display</string>
+    <string name="pref_time_format_title">Time Format</string>
+    <string name="pref_time_format_summary">12-hour or 24-hour format</string>
+    <string name="pref_pixel_shift_title">Pixel Shift Interval</string>
+    <string name="pref_pixel_shift_summary">How often to move clock to prevent burn-in</string>
+
+    <!-- Visual Effects -->
+    <string name="pref_category_effects">Visual Effects</string>
+    <string name="pref_crossfade_enabled_title">Enable Crossfade</string>
+    <string name="pref_crossfade_enabled_summary">Smooth fade transitions between video loops</string>
+    <string name="pref_crossfade_duration_title">Fade Duration</string>
+    <string name="pref_crossfade_duration_summary">Length of fade transition</string>
+
+    <!-- Loading Animation -->
+    <string name="pref_category_loading">Loading Animation</string>
+    <string name="pref_loading_animation_title">Animation Style</string>
+    <string name="pref_loading_animation_summary">Choose animation while streams load</string>
+    <string name="pref_loading_text_title">Loading Text</string>
+    <string name="pref_loading_text_summary">Custom text to display during loading</string>
+
+    <!-- Debug -->
+    <string name="pref_category_debug">Debug Info</string>
+
+    <string name="pref_debug_enabled_title">Enable Debug Logging</string>
+    <string name="pref_debug_enabled_summary">Save timing and performance data to /sdcard/Download/playback_timing.txt</string>
+
+    <string name="pref_stats_enabled_title">Enable Stats Overlay</string>
+    <string name="pref_stats_enabled_summary">Show playback statistics (for troubleshooting)</string>
+    <string name="pref_stats_position_title">Stats Position</string>
+    <string name="pref_stats_position_summary">Corner placement for stats display</string>
+    <string name="pref_stats_interval_title">Stats Update Interval</string>
+    <string name="pref_stats_interval_summary">How often to refresh statistics</string>
+
+    <!-- Test Screensaver Feature -->
+    <string name="pref_test_screensaver_title">Test Screensaver</string>
+    <string name="pref_test_screensaver_summary">Launch screensaver immediately for testing</string>
+
+    <!-- Toast Messages -->
+    <string name="toast_url_cleared">URL cleared. Default stream will be used if left empty</string>
+    <string name="toast_day_url_cleared">URL cleared</string>
+    <string name="toast_schedule_cleared">All schedule URLs cleared</string>
+    <string name="toast_rutube_extracting">🔄 Auto-extracting Rutube stream…</string>
+    <string name="toast_rutube_success">✅ Rutube stream extracted!</string>
+    <string name="toast_rutube_failed">❌ Failed to extract Rutube stream</string>
+    <string name="toast_rutube_error">❌ Error extracting Rutube stream</string>
+    <string name="toast_screensaver_launching">Launching screensaver for testing...</string>
+    <string name="toast_screensaver_error">Error launching screensaver</string>
+
+    <!-- Validation Messages -->
+    <string name="validation_intro_duration">Please enter a value between 1 and 60 seconds</string>
+    <string name="validation_skip_duration">Please enter a value between 0 and 600 seconds</string>
+
+</resources>
