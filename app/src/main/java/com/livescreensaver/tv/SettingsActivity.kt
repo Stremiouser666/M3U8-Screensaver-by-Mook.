@@ -1,6 +1,7 @@
 package com.livescreensaver.tv
 
 import android.app.AlertDialog
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -74,6 +75,10 @@ class SettingsActivity : FragmentActivity() {
         private var lastProcessedUrl = ""
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
+            val context = preferenceManager.context
+            val screen = preferenceManager.createPreferenceScreen(context)
+
+            youtubeExtractor = YouTubeStandaloneExtractor(requireContext(), httpClient)
             val context = preferenceManager.context
             val screen = preferenceManager.createPreferenceScreen(context)
 
@@ -383,7 +388,7 @@ class SettingsActivity : FragmentActivity() {
                 key = "playback_speed_info"
                 title = getString(R.string.pref_playback_speed_info_title)
                 summary = getString(R.string.pref_playback_speed_info_summary)
-                
+
                 setOnPreferenceClickListener {
                     AlertDialog.Builder(requireContext())
                         .setTitle(getString(R.string.pref_playback_speed_info_title))
@@ -407,7 +412,7 @@ class SettingsActivity : FragmentActivity() {
                 key = "resume_info"
                 title = getString(R.string.pref_resume_behavior_title)
                 summary = getString(R.string.pref_resume_behavior_summary)
-                
+
                 setOnPreferenceClickListener {
                     AlertDialog.Builder(requireContext())
                         .setTitle(getString(R.string.pref_resume_behavior_title))
@@ -434,7 +439,7 @@ class SettingsActivity : FragmentActivity() {
                 key = "youtube_quality_info"
                 title = getString(R.string.pref_youtube_quality_info_title)
                 summary = getString(R.string.pref_youtube_quality_info_summary)
-                
+
                 setOnPreferenceClickListener {
                     AlertDialog.Builder(requireContext())
                         .setTitle(getString(R.string.pref_youtube_quality_info_title))
@@ -659,6 +664,19 @@ class SettingsActivity : FragmentActivity() {
             }
             debugCategory.addPreference(statsIntervalPref)
 
+            // === TEST SCREENSAVER BUTTON ===
+            val testScreensaverPref = Preference(context).apply {
+                key = "test_screensaver_button"
+                title = getString(R.string.pref_test_screensaver_title)
+                summary = getString(R.string.pref_test_screensaver_summary)
+
+                setOnPreferenceClickListener {
+                    launchScreensaverTest()
+                    true
+                }
+            }
+            debugCategory.addPreference(testScreensaverPref)
+
             preferenceScreen = screen
         }
 
@@ -859,5 +877,19 @@ class SettingsActivity : FragmentActivity() {
         }
 
         private fun String.capitalize() = this.replaceFirstChar { it.uppercase() }
+    }
+}
+        private fun launchScreensaverTest() {
+            try {
+                val intent = Intent(requireContext(), LiveScreensaverService::class.java)
+                requireContext().startService(intent)
+                
+                showToast(getString(R.string.toast_screensaver_launching))
+                Log.d(TAG, "Test screensaver launched")
+            } catch (e: Exception) {
+                showToast(getString(R.string.toast_screensaver_error))
+                Log.e(TAG, "Error launching test screensaver", e)
+            }
+        }
     }
 }
