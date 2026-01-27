@@ -77,7 +77,7 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
             val cache = prefCache ?: return
             val usageStats = usageStatsTracker.getUsageStats()
             val bandwidthStats = bandwidthTracker.getBandwidthStats()
-            uiOverlayManager.updateStats(playerManager.getPlayer(), usageStats, bandwidthStats)
+            uiOverlayManager.updateStats(playerManager.getPlayer(), usageStats, bandwidthStats, bandwidthTracker)
             usageStatsTracker.trackPlaybackUsage()
             bandwidthTracker.trackBandwidth(playerManager.getPlayer())
             handler.postDelayed(this, cache.statsInterval)
@@ -331,7 +331,7 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
             handler.postDelayed({ initializePlayer() }, 5000)
         }
     }
-    
+
     private fun handlePlayerReady() {
         hideLoadingAnimation()
         if (!hasProcessedPlayback) {
