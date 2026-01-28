@@ -1,7 +1,6 @@
 package com.livescreensaver.tv
 
 import android.app.AlertDialog
-import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -876,7 +875,7 @@ class SettingsActivity : FragmentActivity() {
 
         private fun launchScreensaverTest() {
             try {
-                val intent = Intent(Intent.ACTION_MAIN).apply {
+                val intent = Intent("android.service.dreams.DreamService").apply {
                     setClassName(
                         requireContext().packageName,
                         "com.livescreensaver.tv.LiveScreensaverService"
@@ -889,7 +888,7 @@ class SettingsActivity : FragmentActivity() {
                 Log.d(TAG, "Test screensaver launched")
             } catch (e: Exception) {
                 showToast(getString(R.string.toast_screensaver_error))
-                Log.e(TAG, "Error launching test screensaver", e)
+                Log.e(TAG, "Error launching test screensaver: ${e.message}", e)
             }
         }
     }
