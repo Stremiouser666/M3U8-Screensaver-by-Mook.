@@ -41,11 +41,11 @@ class TestActivity : AppCompatActivity(), SurfaceHolder.Callback, PlayerManager.
                 clockEnabled = prefs.getBoolean("clock_enabled", false),
                 clockPosition = prefs.getString("clock_position", "top_right") ?: "top_right",
                 clockSize = prefs.getString("clock_size", "medium") ?: "medium",
-                timeFormat = prefs.getString("time_format", "12")?.toIntOrNull() ?: 12,
+                timeFormat = prefs.getString("time_format", "12") ?: "12",
                 pixelShiftInterval = prefs.getString("pixel_shift_interval", "0") ?: "0",
                 statsEnabled = prefs.getBoolean("stats_enabled", false),
-                statsPosition = prefs.getString("stats_position", "top_left") ?: "top_left",
-                statsInterval = prefs.getString("stats_interval", "5")?.toIntOrNull() ?: 5,
+                statsPosition = prefs.getString("stats_position", "0")?.toLongOrNull() ?: 0L,
+                statsInterval = prefs.getString("stats_interval", "5")?.toLongOrNull() ?: 5L,
                 resumeEnabled = prefs.getBoolean("resume_enabled", false),
                 preferredResolution = prefs.getString("preferred_resolution", "auto") ?: "auto"
             )
