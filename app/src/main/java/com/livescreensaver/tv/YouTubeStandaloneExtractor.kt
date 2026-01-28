@@ -17,7 +17,8 @@ import java.util.regex.Pattern
 
 class YouTubeStandaloneExtractor(
     private val context: Context,
-    httpClient: OkHttpClient? = null
+    httpClient: OkHttpClient? = null,
+    private val preferredResolution: String = "720"
 ) {
     companion object {
         private const val TAG = "YouTubeExtractor"
@@ -443,6 +444,20 @@ class YouTubeStandaloneExtractor(
             val adaptiveFormats = streamingData.optJSONArray("adaptiveFormats") ?: return null
 
             debugLog("Building custom DASH manifest from ${adaptiveFormats.length()} adaptive formats...")
+            
+            // Map user preference to target height
+            val targetHeight = when (preferredResolution.lowercase()) {
+                "360", "360p" -> 360
+                "480", "480p" -> 480
+                "720", "720p" -> 720
+                "1080", "1080p" -> 1080
+                "1440", "1440p" -> 1440
+                "4k", "2160", "2160p" -> 2160
+                "auto" -> 720  // Default to 720p for auto
+                else -> 720  // Default fallback
+            }
+            
+            debugLog("Target resolution: ${targetHeight}p (user preference: $preferredResolution)")
 
             // Extract video ID for signature decryption
             val videoId = extractVideoId(streamingData.toString()) ?: ""
@@ -502,15 +517,39 @@ class YouTubeStandaloneExtractor(
                         continue
                     }
 
-                    // Prefer H.264 (avc1) over VP9 for better compatibility
+                    // Codec compatibility check - EXCLUDE AV1 for maximum compatibility
                     val isH264 = codecs.contains("avc1")
+                    val isVP9 = codecs.contains("vp9") || codecs.contains("vp09")
+                    val isAV1 = codecs.contains("av01")
+                    
+                    // Skip AV1 completely - not supported on many Android TV devices
+                    if (isAV1) {
+                        debugLog("  - Skipping AV1 format: ${width}x${height} ($codecs) - incompatible")
+                        continue
+                    }
 
-                    // Select 720p specifically for optimal buffering
+                    // Smart resolution selection with codec priority
                     val shouldSelect = when {
-                        height == 720 && isH264 -> true  // Always prefer 720p H.264
-                        height == 720 -> true  // Accept 720p even if VP9
-                        bestVideo == null && height <= 1280 && isH264 -> true  // Fallback: any H.264 up to 720p
-                        bestVideo != null && bestVideo.height != 720 && height < bestVideo.height && isH264 -> true  // Take lower res if 720p not found
+                        // Perfect match with preferred codec
+                        height == targetHeight && isH264 -> true
+                        
+                        // Perfect match with fallback codec
+                        height == targetHeight && isVP9 && (bestVideo == null || !bestVideo.codecs.contains("avc1")) -> true
+                        
+                        // No perfect match yet - take closest resolution with H.264
+                        bestVideo == null && isH264 -> true
+                        
+                        // Better codec at same resolution
+                        bestVideo != null && height == bestVideo.height && isH264 && !bestVideo.codecs.contains("avc1") -> true
+                        
+                        // Closer to target resolution with H.264
+                        bestVideo != null && isH264 && 
+                            Math.abs(height - targetHeight) < Math.abs(bestVideo.height - targetHeight) -> true
+                        
+                        // Closer to target with VP9 (only if current best isn't H.264)
+                        bestVideo != null && isVP9 && !bestVideo.codecs.contains("avc1") &&
+                            Math.abs(height - targetHeight) < Math.abs(bestVideo.height - targetHeight) -> true
+                        
                         else -> false
                     }
 
@@ -559,7 +598,7 @@ class YouTubeStandaloneExtractor(
             debugLog("✅ Returning dual-stream URL for merging")
             debugLog("📹 Video: ${bestVideo.url.take(150)}...")
             debugLog("🔊 Audio: ${bestAudio.url.take(150)}...")
-            return Pair(dualStreamUrl, "720p with audio (${bestVideo.width}x${bestVideo.height})")
+            return Pair(dualStreamUrl, "${bestVideo.height}p with audio (${bestVideo.width}x${bestVideo.height})")
 
             // Original DASH manifest code (disabled for now due to playback issues)
             /*
