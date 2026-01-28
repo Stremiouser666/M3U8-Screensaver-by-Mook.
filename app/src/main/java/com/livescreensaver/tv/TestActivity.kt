@@ -14,6 +14,10 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.preference.PreferenceManager as AndroidPreferenceManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * TestActivity - Launch screensaver for testing without waiting for system idle
@@ -55,10 +59,12 @@ class TestActivity : AppCompatActivity(), SurfaceHolder.Callback, PlayerManager.
 
     private var playerManager: PlayerManager? = null
     private var uiOverlayManager: UIOverlayManager? = null
+    private var streamExtractor: StreamExtractor? = null
     private lateinit var containerLayout: FrameLayout
     private lateinit var surfaceView: SurfaceView
 
     private val handler = Handler(Looper.getMainLooper())
+    private val coroutineScope = CoroutineScope(Dispatchers.Main)
     private var surfaceReady = false
     private var isInitialized = false
 
@@ -119,6 +125,7 @@ class TestActivity : AppCompatActivity(), SurfaceHolder.Callback, PlayerManager.
                 // Initialize managers here when surface is ready
                 playerManager = PlayerManager(this, this)
                 uiOverlayManager = UIOverlayManager(this, containerLayout, handler)
+                streamExtractor = StreamExtractor(this)
 
                 // Setup UI overlays
                 val prefs = AndroidPreferenceManager.getDefaultSharedPreferences(this)
@@ -163,19 +170,41 @@ class TestActivity : AppCompatActivity(), SurfaceHolder.Callback, PlayerManager.
             val prefs = AndroidPreferenceManager.getDefaultSharedPreferences(this)
             val url = prefs.getString("video_url", DEFAULT_VIDEO_URL) ?: DEFAULT_VIDEO_URL
 
-            Log.d(TAG, "Starting playback: $url")
-            playerManager?.playStream(url)
+            Log.d(TAG, "Extracting stream from: $url")
+            
+            // Extract stream URL using StreamExtractor (handles YouTube, M3U8, etc.)
+            coroutineScope.launch {
+                try {
+                    val extractedUrl = withContext(Dispatchers.IO) {
+                        streamExtractor?.extractStreamUrl(url) ?: url
+                    }
+                    
+                    Log.d(TAG, "Starting playback with extracted URL: $extractedUrl")
+                    playerManager?.playStream(extractedUrl)
 
-            // Set volume
-            val audioEnabled = prefs.getBoolean("audio_enabled", true)
-            val audioVolume = prefs.getString("audio_volume", "100")?.toIntOrNull() ?: 100
+                    // Set volume
+                    val audioEnabled = prefs.getBoolean("audio_enabled", true)
+                    val audioVolume = prefs.getString("audio_volume", "100")?.toIntOrNull() ?: 100
 
-            if (audioEnabled) {
-                playerManager?.setVolume(audioVolume / 100f)
-                Log.d(TAG, "Audio enabled, volume: $audioVolume%")
-            } else {
-                playerManager?.setVolume(0f)
-                Log.d(TAG, "Audio disabled")
+                    if (audioEnabled) {
+                        playerManager?.setVolume(audioVolume / 100f)
+                        Log.d(TAG, "Audio enabled, volume: $audioVolume%")
+                    } else {
+                        playerManager?.setVolume(0f)
+                        Log.d(TAG, "Audio disabled")
+                    }
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "Stream extraction failed", e)
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            this@TestActivity,
+                            "Stream extraction failed: ${e.message}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        finish()
+                    }
+                }
             }
 
         } catch (e: Exception) {
