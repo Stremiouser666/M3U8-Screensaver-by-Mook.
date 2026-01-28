@@ -129,7 +129,7 @@ class TestActivity : AppCompatActivity(), SurfaceHolder.Callback, PlayerManager.
                 // Initialize managers here when surface is ready
                 playerManager = PlayerManager(this, this)
                 uiOverlayManager = UIOverlayManager(this, containerLayout, handler)
-                streamExtractor = StreamExtractor(this, cache)
+                streamExtractor = StreamExtractor(this, prefs)
 
                 // Setup UI overlays
                 if (cache.clockEnabled) {
