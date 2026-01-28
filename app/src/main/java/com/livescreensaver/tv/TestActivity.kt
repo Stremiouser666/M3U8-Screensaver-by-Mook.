@@ -11,6 +11,7 @@ import android.view.SurfaceView
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.preference.PreferenceManager as AndroidPreferenceManager
 
@@ -40,60 +41,55 @@ class TestActivity : AppCompatActivity(), SurfaceHolder.Callback, PlayerManager.
                 scheduleRandomMode = prefs.getBoolean("schedule_random_mode", false),
                 clockEnabled = prefs.getBoolean("clock_enabled", false),
                 clockPosition = prefs.getString("clock_position", "top_right") ?: "top_right",
-                clockSize = prefs.getString("clock_size", "medium")?.toIntOrNull() ?: 0,
+                clockSize = prefs.getString("clock_size", "medium")?.toIntOrNull() ?: 64,
                 timeFormat = prefs.getString("time_format", "12") ?: "12",
                 pixelShiftInterval = prefs.getString("pixel_shift_interval", "0")?.toLongOrNull() ?: 0L,
                 statsEnabled = prefs.getBoolean("stats_enabled", false),
                 statsPosition = prefs.getString("stats_position", "top_left") ?: "top_left",
-                statsInterval = prefs.getString("stats_interval", "5")?.toLongOrNull() ?: 5L,
+                statsInterval = prefs.getString("stats_interval", "5")?.toLongOrNull() ?: 5000L,
                 resumeEnabled = prefs.getBoolean("resume_enabled", false),
                 preferredResolution = prefs.getString("preferred_resolution", "auto") ?: "auto"
             )
         }
     }
 
-    private lateinit var playerManager: PlayerManager
-    private lateinit var uiOverlayManager: UIOverlayManager
+    private var playerManager: PlayerManager? = null
+    private var uiOverlayManager: UIOverlayManager? = null
     private lateinit var containerLayout: FrameLayout
     private lateinit var surfaceView: SurfaceView
 
     private val handler = Handler(Looper.getMainLooper())
     private var surfaceReady = false
+    private var isInitialized = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        Log.d(TAG, "onCreate started")
 
-        setupFullscreen()
+        try {
+            setupFullscreen()
 
-        // Create container layout
-        containerLayout = FrameLayout(this)
-        setContentView(containerLayout)
+            // Create container layout
+            containerLayout = FrameLayout(this)
+            setContentView(containerLayout)
 
-        // Create surface view
-        surfaceView = SurfaceView(this)
-        surfaceView.holder.addCallback(this)
+            // Create surface view
+            surfaceView = SurfaceView(this)
+            surfaceView.holder.addCallback(this)
 
-        containerLayout.addView(surfaceView, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        ))
+            containerLayout.addView(surfaceView, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            ))
 
-        // Initialize managers
-        playerManager = PlayerManager(this, this)
-        uiOverlayManager = UIOverlayManager(this, containerLayout, handler)
+            Log.d(TAG, "Layout created successfully")
 
-        // Setup UI overlays using PreferenceCache
-        val prefs = AndroidPreferenceManager.getDefaultSharedPreferences(this)
-        val cache = createPreferenceCache(prefs)
-
-        if (cache.clockEnabled) {
-            uiOverlayManager.setupClock(cache)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in onCreate", e)
+            Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+            finish()
         }
-        if (cache.statsEnabled) {
-            uiOverlayManager.setupStats(cache)
-        }
-
-        Log.d(TAG, "Test activity created")
     }
 
     private fun setupFullscreen() {
@@ -117,40 +113,74 @@ class TestActivity : AppCompatActivity(), SurfaceHolder.Callback, PlayerManager.
     override fun surfaceCreated(holder: SurfaceHolder) {
         Log.d(TAG, "Surface created")
         surfaceReady = true
-        startPlayback(holder.surface)
+        
+        try {
+            if (!isInitialized) {
+                // Initialize managers here when surface is ready
+                playerManager = PlayerManager(this, this)
+                uiOverlayManager = UIOverlayManager(this, containerLayout, handler)
+
+                // Setup UI overlays
+                val prefs = AndroidPreferenceManager.getDefaultSharedPreferences(this)
+                val cache = createPreferenceCache(prefs)
+
+                if (cache.clockEnabled) {
+                    uiOverlayManager?.setupClock(cache)
+                }
+                if (cache.statsEnabled) {
+                    uiOverlayManager?.setupStats(cache)
+                }
+
+                isInitialized = true
+                Log.d(TAG, "Managers initialized")
+            }
+            
+            startPlayback(holder.surface)
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in surfaceCreated", e)
+            Toast.makeText(this, "Playback error: ${e.message}", Toast.LENGTH_LONG).show()
+            finish()
+        }
     }
 
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {}
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+        Log.d(TAG, "Surface changed: ${width}x${height}")
+    }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         Log.d(TAG, "Surface destroyed")
         surfaceReady = false
-        playerManager.release()
+        playerManager?.release()
     }
 
     private fun startPlayback(surface: android.view.Surface) {
         try {
-            playerManager.initialize(surface)
+            Log.d(TAG, "Initializing player with surface")
+            playerManager?.initialize(surface)
 
             // Get URL from preferences
             val prefs = AndroidPreferenceManager.getDefaultSharedPreferences(this)
             val url = prefs.getString("video_url", DEFAULT_VIDEO_URL) ?: DEFAULT_VIDEO_URL
 
             Log.d(TAG, "Starting playback: $url")
-            playerManager.playStream(url)
+            playerManager?.playStream(url)
 
             // Set volume
             val audioEnabled = prefs.getBoolean("audio_enabled", true)
             val audioVolume = prefs.getString("audio_volume", "100")?.toIntOrNull() ?: 100
 
             if (audioEnabled) {
-                playerManager.setVolume(audioVolume / 100f)
+                playerManager?.setVolume(audioVolume / 100f)
+                Log.d(TAG, "Audio enabled, volume: $audioVolume%")
             } else {
-                playerManager.setVolume(0f)
+                playerManager?.setVolume(0f)
+                Log.d(TAG, "Audio disabled")
             }
 
         } catch (e: Exception) {
             Log.e(TAG, "Error starting playback", e)
+            Toast.makeText(this, "Playback failed: ${e.message}", Toast.LENGTH_LONG).show()
             finish()
         }
     }
@@ -162,28 +192,35 @@ class TestActivity : AppCompatActivity(), SurfaceHolder.Callback, PlayerManager.
 
     override fun onPlayerError(error: Exception) {
         Log.e(TAG, "Player error", error)
+        Toast.makeText(this, "Player error: ${error.message}", Toast.LENGTH_LONG).show()
         finish()
     }
 
     override fun onResume() {
         super.onResume()
+        Log.d(TAG, "onResume")
         hideSystemUI()
-        if (surfaceReady) {
-            playerManager.resume()
+        if (surfaceReady && isInitialized) {
+            playerManager?.resume()
         }
     }
 
     override fun onPause() {
         super.onPause()
-        playerManager.pause()
+        Log.d(TAG, "onPause")
+        playerManager?.pause()
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        uiOverlayManager.cleanup()
-        playerManager.release()
-        handler.removeCallbacksAndMessages(null)
-        Log.d(TAG, "Test activity destroyed")
+        Log.d(TAG, "onDestroy")
+        try {
+            uiOverlayManager?.cleanup()
+            playerManager?.release()
+            handler.removeCallbacksAndMessages(null)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in onDestroy", e)
+        }
     }
 
     // Exit on any key press
