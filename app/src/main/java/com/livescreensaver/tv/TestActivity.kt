@@ -12,7 +12,7 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
-import androidx.preference.PreferenceManager
+import androidx.preference.PreferenceManager as AndroidPreferenceManager
 
 /**
  * TestActivity - Launch screensaver for testing without waiting for system idle
@@ -54,20 +54,9 @@ class TestActivity : AppCompatActivity(), SurfaceHolder.Callback, PlayerManager.
         playerManager = PlayerManager(this, this)
         uiOverlayManager = UIOverlayManager(this, containerLayout, handler)
         
-        // Setup UI overlays
-        val prefs = PreferenceManager.getDefaultSharedPreferences(this)
-        val cache = com.livescreensaver.tv.PreferenceCache(
-            clockEnabled = prefs.getBoolean("clock_enabled", true),
-            clockPosition = prefs.getString("clock_position", "top_right") ?: "top_right",
-            clockSize = prefs.getString("clock_size", "64")?.toIntOrNull() ?: 64,
-            timeFormat = prefs.getString("time_format", "12h") ?: "12h",
-            pixelShiftInterval = prefs.getString("pixel_shift_interval", "300000")?.toLongOrNull() ?: 300000L,
-            statsEnabled = prefs.getBoolean("stats_enabled", false),
-            statsPosition = prefs.getString("stats_position", "top_left") ?: "top_left",
-            statsInterval = prefs.getString("stats_interval", "1000")?.toLongOrNull() ?: 1000L,
-            audioEnabled = prefs.getBoolean("audio_enabled", true),
-            audioVolume = prefs.getString("audio_volume", "100")?.toIntOrNull() ?: 100
-        )
+        // Setup UI overlays using PreferenceCache
+        val prefs = AndroidPreferenceManager.getDefaultSharedPreferences(this)
+        val cache = PreferenceCache.from(prefs)
         
         if (cache.clockEnabled) {
             uiOverlayManager.setupClock(cache)
@@ -116,7 +105,7 @@ class TestActivity : AppCompatActivity(), SurfaceHolder.Callback, PlayerManager.
             playerManager.initialize(surface)
             
             // Get URL from preferences
-            val prefs = PreferenceManager.getDefaultSharedPreferences(this)
+            val prefs = AndroidPreferenceManager.getDefaultSharedPreferences(this)
             val url = prefs.getString("video_url", DEFAULT_VIDEO_URL) ?: DEFAULT_VIDEO_URL
             
             Log.d(TAG, "Starting playback: $url")
