@@ -122,14 +122,15 @@ class TestActivity : AppCompatActivity(), SurfaceHolder.Callback, PlayerManager.
         
         try {
             if (!isInitialized) {
+                // Initialize managers here when surface is ready
+                playerManager = PlayerManager(this, this)
+                
                 // Get preferences and cache for initialization
                 val prefs = AndroidPreferenceManager.getDefaultSharedPreferences(this)
                 val cache = createPreferenceCache(prefs)
                 
-                // Initialize managers here when surface is ready
-                playerManager = PlayerManager(this, this)
-                uiOverlayManager = UIOverlayManager(this, containerLayout, handler)
-                streamExtractor = StreamExtractor(this, prefs)
+                uiOverlayManager = UIOverlayManager(this, containerLayout, handler, cache)
+                streamExtractor = StreamExtractor(this)
 
                 // Setup UI overlays
                 if (cache.clockEnabled) {
