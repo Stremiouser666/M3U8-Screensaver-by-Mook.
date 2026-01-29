@@ -130,7 +130,7 @@ class TestActivity : AppCompatActivity(), SurfaceHolder.Callback, PlayerManager.
                 val cache = createPreferenceCache(prefs)
                 
                 uiOverlayManager = UIOverlayManager(this, containerLayout, handler)
-                streamExtractor = StreamExtractor(this, cache)
+                streamExtractor = StreamExtractor(this, prefs)
 
                 // Setup UI overlays
                 if (cache.clockEnabled) {
