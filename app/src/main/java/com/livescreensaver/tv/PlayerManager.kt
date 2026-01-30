@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.Surface
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.PlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.source.MergingMediaSource
@@ -41,16 +42,51 @@ class PlayerManager(
             .build()
             .apply {
                 setVideoSurface(surface)
+                
+                // Original event listener
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         eventListener.onPlaybackStateChanged(playbackState)
                     }
 
-                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    override fun onPlayerError(error: PlaybackException) {
                         eventListener.onPlayerError(Exception(error))
                     }
                 })
             }
+
+        // Add detailed logging listener
+        FileLogger.log("PlayerManager", "🎮 Adding detailed player listeners...")
+        
+        exoPlayer?.addListener(object : Player.Listener {
+            
+            override fun onPlaybackStateChanged(state: Int) {
+                val stateName = when (state) {
+                    Player.STATE_IDLE -> "IDLE"
+                    Player.STATE_BUFFERING -> "BUFFERING"
+                    Player.STATE_READY -> "READY"
+                    Player.STATE_ENDED -> "ENDED"
+                    else -> "UNKNOWN($state)"
+                }
+                FileLogger.log("PlayerManager", "⚡ Player State: $stateName")
+                
+                if (state == Player.STATE_READY) {
+                    FileLogger.log("PlayerManager", "✅ Media ready - Duration: ${exoPlayer?.duration}ms")
+                }
+            }
+            
+            override fun onPlayerError(error: PlaybackException) {
+                FileLogger.log("PlayerManager", "❌ PLAYBACK ERROR!")
+                FileLogger.log("PlayerManager", "   Error: ${error.message}")
+                FileLogger.log("PlayerManager", "   Code: ${error.errorCode}")
+            }
+            
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                FileLogger.log("PlayerManager", if (isPlaying) "▶️ PLAYING" else "⏸️ PAUSED")
+            }
+        })
+
+        FileLogger.log("PlayerManager", "✅ Player listeners added")
     }
 
     /**
@@ -80,8 +116,14 @@ class PlayerManager(
             FileLogger.log("🎬 Loading single stream: ${url.take(100)}...", "PlayerManager")
             val mediaItem = MediaItem.fromUri(url)
             player.setMediaItem(mediaItem)
+            
+            FileLogger.log("📦 Media source set", "PlayerManager")
+            
             player.prepare()
-            player.play()
+            FileLogger.log("⚙️ player.prepare() called", "PlayerManager")
+            
+            player.playWhenReady = true
+            FileLogger.log("▶️ player.playWhenReady = true", "PlayerManager")
 
         } catch (e: Exception) {
             FileLogger.log("❌ Error loading stream: ${e.message}", "PlayerManager")
@@ -112,8 +154,14 @@ class PlayerManager(
             FileLogger.log("✅ Merged source created (buffering ~5s before start)", "PlayerManager")
 
             player.setMediaSource(merged)
+            
+            FileLogger.log("📦 Media source set", "PlayerManager")
+            
             player.prepare()
-            player.play()
+            FileLogger.log("⚙️ player.prepare() called", "PlayerManager")
+            
+            player.playWhenReady = true
+            FileLogger.log("▶️ player.playWhenReady = true", "PlayerManager")
 
         } catch (e: Exception) {
             FileLogger.log("❌ Error merging: ${e.message}", "PlayerManager")
