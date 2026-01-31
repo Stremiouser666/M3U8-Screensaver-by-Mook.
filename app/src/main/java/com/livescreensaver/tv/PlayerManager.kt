@@ -22,7 +22,7 @@ class PlayerManager(
     private var exoPlayer: ExoPlayer? = null
     private var musicPlayer: MediaPlayer? = null
     private var streamStartTime: Long = 0
-    
+
     // Playback preferences - will be set via updatePreferences()
     private var playbackSpeed: Float = 1.0f
     private var randomSeekEnabled: Boolean = true
@@ -32,9 +32,26 @@ class PlayerManager(
     private var skipBeginningDurationMs: Long = 0
     private var audioEnabled: Boolean = false
     private var audioVolume: Float = 0.5f
-    
+
     private var hasAppliedInitialSeek = false
     private var currentResolution: Int = 1080 // Track current resolution (720 or 1080)
+
+    /**
+     * A DefaultHttpDataSource.Factory with the YouTube Android VR app User-Agent.
+     *
+     * When YouTubeStandaloneExtractor extracts a URL via the ANDROID_VR InnerTube
+     * client, YouTube signs it with c=ANDROID_VR. The CDN that serves googlevideo.com
+     * then expects the actual download request to come from a client that identifies
+     * itself as the YouTube Android VR app. ExoPlayer's default User-Agent is something
+     * generic like "AndroidX-Media3/..." which doesn't match, so the CDN returns 403.
+     *
+     * Setting the User-Agent here to match the same identity used during extraction
+     * makes the CDN accept the request.
+     */
+    private val youtubeDataSourceFactory = DefaultHttpDataSource.Factory()
+        .setConnectTimeoutMs(15000)
+        .setReadTimeoutMs(15000)
+        .setUserAgent("com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 11) gzip")
 
     interface PlayerEventListener {
         fun onPlaybackStateChanged(state: Int)
@@ -51,7 +68,7 @@ class PlayerManager(
         val maxBuffer = (120000 * speedMultiplier).toInt() // 120s base (was 90s) - 2 minutes!
         val playbackBuffer = 5000  // 5s to start (was 3s) - build strong buffer
         val rebufferThreshold = (20000 * speedMultiplier).toInt() // 20s base (was 12s) - HUGE margin
-        
+
         FileLogger.log("🔧 Buffer config for speed ${playbackSpeed}x: min=${minBuffer}ms, max=${maxBuffer}ms, playback=${playbackBuffer}ms, rebuffer=${rebufferThreshold}ms", "PlayerManager")
 
         val loadControl = DefaultLoadControl.Builder()
@@ -74,17 +91,17 @@ class PlayerManager(
                 playbackParameters = PlaybackParameters(playbackSpeed)
                 volume = if (audioEnabled) audioVolume else 0f
                 repeatMode = Player.REPEAT_MODE_ONE
-                
+
                 // Apply smart bitrate limiting
                 applyBitrateLimits()
-                
+
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
                         if (playbackState == Player.STATE_READY && streamStartTime > 0) {
                             val latency = System.currentTimeMillis() - streamStartTime
                             FileLogger.log("⚡ PLAYBACK STARTED in ${latency}ms", "PlayerManager")
                             streamStartTime = 0
-                            
+
                             if (!hasAppliedInitialSeek) {
                                 handleInitialPlayback()
                                 hasAppliedInitialSeek = true
@@ -102,18 +119,18 @@ class PlayerManager(
 
     private fun applyBitrateLimits() {
         val player = exoPlayer ?: return
-        
+
         // Calculate max bitrate based on resolution and speed
         val maxBitrate = calculateMaxBitrate(currentResolution, playbackSpeed)
-        
+
         if (maxBitrate > 0) {
             val trackSelectionParameters = player.trackSelectionParameters
                 .buildUpon()
                 .setMaxVideoBitrate(maxBitrate)
                 .build()
-            
+
             player.trackSelectionParameters = trackSelectionParameters
-            
+
             FileLogger.log("🎯 Smart bitrate limit applied: ${maxBitrate / 1_000_000f} Mbps for ${currentResolution}p at ${playbackSpeed}x speed", "PlayerManager")
         } else {
             FileLogger.log("🎯 No bitrate limit (unlimited) for ${currentResolution}p at ${playbackSpeed}x speed", "PlayerManager")
@@ -126,13 +143,13 @@ class PlayerManager(
         return when {
             // 1080p at 1.5x - 6 Mbps
             resolution == 1080 && speed == 1.5f -> 6_000_000
-            
+
             // 1080p at 2.0x - 2.5 Mbps
             resolution == 1080 && speed == 2.0f -> 2_500_000
-            
+
             // 720p at 2.0x - 1.5 Mbps
             resolution == 720 && speed == 2.0f -> 1_500_000
-            
+
             // All other combinations: unlimited
             else -> 0
         }
@@ -143,17 +160,17 @@ class PlayerManager(
             FileLogger.log("⚠️ Invalid resolution: $resolution. Must be 720 or 1080", "PlayerManager")
             return
         }
-        
+
         currentResolution = resolution
         FileLogger.log("📺 Resolution set to: ${resolution}p", "PlayerManager")
-        
+
         // Reapply bitrate limits with new resolution
         applyBitrateLimits()
     }
 
     fun updatePreferences(cache: PreferenceCache) {
         val oldSpeed = playbackSpeed
-        
+
         playbackSpeed = if (cache.speedEnabled) cache.playbackSpeed else 1.0f
         randomSeekEnabled = cache.randomSeekEnabled
         introEnabled = cache.introEnabled
@@ -162,26 +179,26 @@ class PlayerManager(
         skipBeginningDurationMs = cache.skipBeginningDuration
         audioEnabled = cache.audioEnabled
         audioVolume = cache.audioVolume / 100f
-        
+
         exoPlayer?.let { player ->
             player.playbackParameters = PlaybackParameters(playbackSpeed)
             player.volume = if (audioEnabled) audioVolume else 0f
-            
+
             // Reapply bitrate limits if speed changed
             if (oldSpeed != playbackSpeed) {
                 applyBitrateLimits()
             }
         }
-        
+
         FileLogger.log("⚙️ Preferences updated - Speed: $playbackSpeed, Audio: ${if (audioEnabled) "${(audioVolume * 100).toInt()}%" else "OFF"}, RandomSeek: $randomSeekEnabled, Intro: $introEnabled (${introDurationMs}ms), Skip: $skipBeginningEnabled (${skipBeginningDurationMs}ms)", "PlayerManager")
     }
 
     private fun handleInitialPlayback() {
         val player = exoPlayer ?: return
         val duration = player.duration
-        
+
         FileLogger.log("🎯 handleInitialPlayback - duration: ${duration}ms, skipEnabled: $skipBeginningEnabled (${skipBeginningDurationMs}ms), randomEnabled: $randomSeekEnabled, introEnabled: $introEnabled (${introDurationMs}ms)", "PlayerManager")
-        
+
         if (duration <= 0 || duration == C.TIME_UNSET) {
             FileLogger.log("⚠️ Duration unknown, skipping initial playback setup", "PlayerManager")
             return
@@ -200,14 +217,14 @@ class PlayerManager(
             }
             return
         }
-        
+
         // Priority 2: Skip beginning only
         if (skipBeginningEnabled && skipBeginningDurationMs > 0) {
             player.seekTo(skipBeginningDurationMs)
             FileLogger.log("⏩ Skip beginning: ${skipBeginningDurationMs / 1000}s", "PlayerManager")
             return
         }
-        
+
         // Priority 3: Intro + Random seek (play intro THEN seek randomly)
         if (introEnabled && introDurationMs > 0 && randomSeekEnabled) {
             FileLogger.log("▶️ Playing intro: ${introDurationMs / 1000}s, then will random seek", "PlayerManager")
@@ -225,12 +242,12 @@ class PlayerManager(
             }, introDurationMs)
             return
         }
-        
+
         // Priority 4: Random seek only (no intro)
         if (randomSeekEnabled) {
             val safeEndPosition = (duration * 0.9).toLong()
             val startPosition = 0L
-            
+
             if (safeEndPosition > startPosition) {
                 val seekPosition = Random.nextLong(startPosition, safeEndPosition)
                 player.seekTo(seekPosition)
@@ -238,7 +255,7 @@ class PlayerManager(
             }
             return
         }
-        
+
         // Priority 5: Intro play only (no random seek)
         if (introEnabled && introDurationMs > 0) {
             FileLogger.log("▶️ Playing intro: ${introDurationMs / 1000}s (no random seek)", "PlayerManager")
@@ -270,10 +287,20 @@ class PlayerManager(
                 }
             }
 
-            FileLogger.log("🎬 Loading single stream: ${url.take(100)}...", "PlayerManager")
-            streamStartTime = System.currentTimeMillis()
-            val mediaItem = MediaItem.fromUri(url)
-            player.setMediaItem(mediaItem)
+            // Single stream path: use the YouTube data source for googlevideo URLs,
+            // plain MediaItem for everything else (M3U8, etc.)
+            if (url.contains("googlevideo.com")) {
+                FileLogger.log("🎬 Loading single googlevideo stream with YouTube User-Agent: ${url.take(100)}...", "PlayerManager")
+                streamStartTime = System.currentTimeMillis()
+                val mediaSource = ProgressiveMediaSource.Factory(youtubeDataSourceFactory)
+                    .createMediaSource(MediaItem.fromUri(url))
+                player.setMediaSource(mediaSource)
+            } else {
+                FileLogger.log("🎬 Loading single stream: ${url.take(100)}...", "PlayerManager")
+                streamStartTime = System.currentTimeMillis()
+                player.setMediaItem(MediaItem.fromUri(url))
+            }
+
             player.prepare()
             player.play()
 
@@ -288,8 +315,12 @@ class PlayerManager(
 
         try {
             streamStartTime = System.currentTimeMillis()
-            val mediaItem = MediaItem.fromUri(videoUrl)
-            player.setMediaItem(mediaItem)
+
+            FileLogger.log("🎬 Loading video-only stream with YouTube User-Agent", "PlayerManager")
+            val mediaSource = ProgressiveMediaSource.Factory(youtubeDataSourceFactory)
+                .createMediaSource(MediaItem.fromUri(videoUrl))
+
+            player.setMediaSource(mediaSource)
             player.volume = 0f
             player.prepare()
             player.play()
@@ -339,14 +370,12 @@ class PlayerManager(
 
         try {
             streamStartTime = System.currentTimeMillis()
-            val dataSourceFactory = DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(5000)
-                .setReadTimeoutMs(5000)
 
-            val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+            FileLogger.log("🎬 Merging video + audio streams with YouTube User-Agent", "PlayerManager")
+            val videoSource = ProgressiveMediaSource.Factory(youtubeDataSourceFactory)
                 .createMediaSource(MediaItem.fromUri(videoUrl))
 
-            val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+            val audioSource = ProgressiveMediaSource.Factory(youtubeDataSourceFactory)
                 .createMediaSource(MediaItem.fromUri(audioUrl))
 
             val merged = MergingMediaSource(videoSource, audioSource)
