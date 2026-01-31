@@ -101,6 +101,7 @@ class YouTubeStandaloneExtractor(
                 videoId,
                 clientName = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
                 clientVersion = "2.0",
+                clientId = "85",
                 apiKey = TV_API_KEY,
                 androidSdkVersion = null,
                 embedUrl = "https://www.youtube.com/watch?v=$videoId"
@@ -117,31 +118,32 @@ class YouTubeStandaloneExtractor(
                 )
             }
 
-            debugLog("⚠️ TV client failed, trying Android client...")
+            debugLog("⚠️ TV client failed, trying Android VR client...")
 
-            // Try Android client as fallback
-            debugLog(">>> Attempting Method 2: Android InnerTube API")
-            val androidResult = tryInnerTubeExtraction(
+            // Try Android VR client as primary fallback (YouTube now prefers this over plain ANDROID)
+            debugLog(">>> Attempting Method 2: Android VR InnerTube API")
+            val androidVrResult = tryInnerTubeExtraction(
                 videoId,
-                clientName = "ANDROID",
-                clientVersion = "20.10.38",
+                clientName = "ANDROID_VR",
+                clientVersion = "1.60.19",
+                clientId = "28",
                 apiKey = ANDROID_API_KEY,
                 androidSdkVersion = 11,
                 embedUrl = null
             )
 
-            if (androidResult != null) {
-                debugLog("✅ SUCCESS via Android InnerTube!")
+            if (androidVrResult != null) {
+                debugLog("✅ SUCCESS via Android VR InnerTube!")
                 return@withContext ExtractionResult(
                     success = true,
-                    streamUrl = androidResult.first,
-                    quality = androidResult.second,
+                    streamUrl = androidVrResult.first,
+                    quality = androidVrResult.second,
                     hasAudio = true,
-                    isDashManifest = androidResult.second.contains("DASH")
+                    isDashManifest = androidVrResult.second.contains("DASH")
                 )
             }
 
-            debugLog("⚠️ Android client failed, trying Web client...")
+            debugLog("⚠️ Android VR client failed, trying Web client...")
 
             // Try WEB client as last resort
             debugLog(">>> Attempting Method 3: Web InnerTube API")
@@ -149,6 +151,7 @@ class YouTubeStandaloneExtractor(
                 videoId,
                 clientName = "WEB",
                 clientVersion = "2.20240304.00.00",
+                clientId = "1",
                 apiKey = WEB_API_KEY,
                 androidSdkVersion = null,
                 embedUrl = null
@@ -186,6 +189,7 @@ class YouTubeStandaloneExtractor(
         videoId: String,
         clientName: String,
         clientVersion: String,
+        clientId: String,
         apiKey: String,
         androidSdkVersion: Int?,
         embedUrl: String? = null
@@ -239,7 +243,7 @@ class YouTubeStandaloneExtractor(
             }
 
             val userAgent = when {
-                clientName == "ANDROID" -> "com.google.android.youtube/$clientVersion (Linux; U; Android 11) gzip"
+                clientName == "ANDROID_VR" -> "com.google.android.apps.youtube.vr.oculus/$clientVersion (Linux; U; Android 11) gzip"
                 clientName.contains("TV") -> "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version,gzip(gfe)"
                 else -> "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
             }
@@ -249,11 +253,7 @@ class YouTubeStandaloneExtractor(
                 .post(requestBody.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
                 .addHeader("Content-Type", "application/json")
                 .addHeader("User-Agent", userAgent)
-                .addHeader("X-YouTube-Client-Name", when {
-                    clientName == "ANDROID" -> "3"
-                    clientName.contains("TV") -> "85"
-                    else -> "1"
-                })
+                .addHeader("X-YouTube-Client-Name", clientId)
                 .addHeader("X-YouTube-Client-Version", clientVersion)
 
             // Add additional headers for Web/TV clients
