@@ -36,17 +36,20 @@ class YouTubeStandaloneExtractor(
         const val MODE_2160_VIDEO_ONLY = "2160_video_only"
     }
 
-    private fun getQualityMode(): String {
-        val prefs = context.getSharedPreferences("com.livescreensaver.tv_preferences", Context.MODE_PRIVATE)
-        return prefs.getString("youtube_quality_mode", MODE_360_PROGRESSIVE) ?: MODE_360_PROGRESSIVE
-    }
-
     private val httpClient = httpClient ?: OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
 
     private val signatureDecryptor = YouTubeSignatureDecryptor(context, httpClient)
+
+    private fun getQualityMode(): String {
+        val prefs = context.getSharedPreferences(
+            "com.livescreensaver.tv_preferences",
+            Context.MODE_PRIVATE
+        )
+        return prefs.getString("youtube_quality_mode", MODE_360_PROGRESSIVE) ?: MODE_360_PROGRESSIVE
+    }
 
     data class ExtractionResult(
         val success: Boolean,
@@ -84,7 +87,6 @@ class YouTubeStandaloneExtractor(
             debugLog("Input URL: $youtubeUrl")
 
             val videoId = extractVideoId(youtubeUrl)
-
             if (videoId == null) {
                 debugLog("❌ Failed to extract video ID from URL")
                 return@withContext ExtractionResult(
@@ -92,75 +94,41 @@ class YouTubeStandaloneExtractor(
                     errorMessage = "Could not extract video ID from YouTube URL"
                 )
             }
-
             debugLog("✓ Extracted video ID: $videoId")
 
-            // Try TV/Android SDK-less client FIRST (bypasses SABR, provides direct URLs)
-            debugLog(">>> Attempting Method 1: TV Client (Android SDK-less)")
-            val tvResult = tryInnerTubeExtraction(
-                videoId,
-                clientName = "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-                clientVersion = "2.0",
-                apiKey = TV_API_KEY,
-                androidSdkVersion = null,
-                embedUrl = "https://www.youtube.com/watch?v=$videoId"
-            )
-
-            if (tvResult != null) {
-                debugLog("✅ SUCCESS via TV Client!")
+            // Try TV client first
+            debugLog(">>> Attempting TV client extraction")
+            tryInnerTubeExtraction(videoId, "TVHTML5_SIMPLY_EMBEDDED_PLAYER", "2.0", TV_API_KEY, null, "https://www.youtube.com/watch?v=$videoId")?.let {
                 return@withContext ExtractionResult(
                     success = true,
-                    streamUrl = tvResult.first,
-                    quality = tvResult.second,
-                    hasAudio = tvResult.second.contains("progressive"),
-                    isDashManifest = tvResult.second.contains("DASH")
+                    streamUrl = it.first,
+                    quality = it.second,
+                    hasAudio = true,
+                    isDashManifest = it.second.contains("video-only")
                 )
             }
 
-            debugLog("⚠️ TV client failed, trying Android client...")
-
-            // Try Android client as fallback
-            debugLog(">>> Attempting Method 2: Android InnerTube API")
-            val androidResult = tryInnerTubeExtraction(
-                videoId,
-                clientName = "ANDROID",
-                clientVersion = "20.10.38",
-                apiKey = ANDROID_API_KEY,
-                androidSdkVersion = 11,
-                embedUrl = null
-            )
-
-            if (androidResult != null) {
-                debugLog("✅ SUCCESS via Android InnerTube!")
+            // Android client fallback
+            debugLog(">>> Attempting Android client extraction")
+            tryInnerTubeExtraction(videoId, "ANDROID", "20.10.38", ANDROID_API_KEY, 11)?.let {
                 return@withContext ExtractionResult(
                     success = true,
-                    streamUrl = androidResult.first,
-                    quality = androidResult.second,
-                    hasAudio = androidResult.second.contains("progressive"),
-                    isDashManifest = androidResult.second.contains("DASH")
+                    streamUrl = it.first,
+                    quality = it.second,
+                    hasAudio = true,
+                    isDashManifest = it.second.contains("video-only")
                 )
             }
 
-            debugLog("⚠️ Android client failed, trying Web client...")
-
-            // Try WEB client as last resort
-            val webResult = tryInnerTubeExtraction(
-                videoId,
-                clientName = "WEB",
-                clientVersion = "2.20240304.00.00",
-                apiKey = WEB_API_KEY,
-                androidSdkVersion = null,
-                embedUrl = null
-            )
-
-            if (webResult != null) {
-                debugLog("✅ SUCCESS via Web InnerTube!")
+            // Web client fallback
+            debugLog(">>> Attempting Web client extraction")
+            tryInnerTubeExtraction(videoId, "WEB", "2.20240304.00.00", WEB_API_KEY, null)?.let {
                 return@withContext ExtractionResult(
                     success = true,
-                    streamUrl = webResult.first,
-                    quality = webResult.second,
-                    hasAudio = webResult.second.contains("progressive"),
-                    isDashManifest = webResult.second.contains("DASH")
+                    streamUrl = it.first,
+                    quality = it.second,
+                    hasAudio = true,
+                    isDashManifest = it.second.contains("video-only")
                 )
             }
 
@@ -172,8 +140,6 @@ class YouTubeStandaloneExtractor(
 
         } catch (e: Exception) {
             debugLog("❌ Exception: ${e.message}")
-            debugLog("Stack trace: ${e.stackTraceToString()}")
-            Log.e(TAG, "YouTube extraction error", e)
             ExtractionResult(
                 success = false,
                 errorMessage = "Exception: ${e.message}"
@@ -190,30 +156,24 @@ class YouTubeStandaloneExtractor(
         embedUrl: String? = null
     ): Pair<String, String>? = withContext(Dispatchers.IO) {
         try {
-            debugLog("Building $clientName client request...")
-
             val clientContext = JSONObject().apply {
                 put("clientName", clientName)
                 put("clientVersion", clientVersion)
                 put("hl", "en")
                 put("gl", "US")
                 put("utcOffsetMinutes", 0)
-                if (androidSdkVersion != null) {
-                    put("androidSdkVersion", androidSdkVersion)
+                androidSdkVersion?.let {
+                    put("androidSdkVersion", it)
                     put("osName", "Android")
                     put("osVersion", "11")
                 }
-                if (clientName.contains("TV")) {
-                    put("clientScreen", "EMBED")
-                }
+                if (clientName.contains("TV")) put("clientScreen", "EMBED")
             }
 
             val contextJson = JSONObject().apply {
                 put("client", clientContext)
                 if (clientName.contains("TV") && embedUrl != null) {
-                    put("thirdParty", JSONObject().apply {
-                        put("embedUrl", embedUrl)
-                    })
+                    put("thirdParty", JSONObject().apply { put("embedUrl", embedUrl) })
                 }
             }
 
@@ -236,7 +196,7 @@ class YouTubeStandaloneExtractor(
                 else -> "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
             }
 
-            val requestBuilder = Request.Builder()
+            val request = Request.Builder()
                 .url("$PLAYER_ENDPOINT?key=$apiKey")
                 .post(requestBody.toString().toRequestBody("application/json; charset=utf-8".toMediaTypeOrNull()))
                 .addHeader("Content-Type", "application/json")
@@ -247,42 +207,22 @@ class YouTubeStandaloneExtractor(
                     else -> "1"
                 })
                 .addHeader("X-YouTube-Client-Version", clientVersion)
-
-            if (clientName == "WEB" || clientName.contains("TV")) {
-                requestBuilder
-                    .addHeader("Origin", "https://www.youtube.com")
-                    .addHeader("Referer", embedUrl ?: "https://www.youtube.com/watch?v=$videoId")
-            }
-
-            val request = requestBuilder.build()
-            debugLog("Sending $clientName API request...")
-            val response = httpClient.newCall(request).execute()
-            debugLog("Response code: ${response.code}")
-
-            if (!response.isSuccessful) {
-                debugLog("❌ API request failed with HTTP ${response.code}")
-                return@withContext null
-            }
-
-            val json = response.body?.string()
-            if (json.isNullOrEmpty()) {
-                debugLog("❌ Empty response body")
-                return@withContext null
-            }
-
-            val jsonObject = JSONObject(json)
-            if (jsonObject.has("playabilityStatus")) {
-                val playability = jsonObject.getJSONObject("playabilityStatus")
-                val status = playability.optString("status", "UNKNOWN")
-                val reason = playability.optString("reason", "No reason provided")
-                debugLog("Playability status: $status")
-                if (status != "OK") {
-                    debugLog("Reason: $reason")
-                    return@withContext null
+                .apply {
+                    if (clientName == "WEB" || clientName.contains("TV")) {
+                        addHeader("Origin", "https://www.youtube.com")
+                        addHeader("Referer", embedUrl ?: "https://www.youtube.com/watch?v=$videoId")
+                    }
                 }
-            }
+                .build()
 
-            parseStreamingData(jsonObject)
+            val response = httpClient.newCall(request).execute()
+            if (!response.isSuccessful) return@withContext null
+            val json = response.body?.string() ?: return@withContext null
+            val jsonObject = JSONObject(json)
+
+            if (jsonObject.optJSONObject("playabilityStatus")?.optString("status") != "OK") return@withContext null
+
+            parseStreamingData(jsonObject, videoId)
 
         } catch (e: Exception) {
             debugLog("❌ $clientName exception: ${e.message}")
@@ -290,22 +230,73 @@ class YouTubeStandaloneExtractor(
         }
     }
 
-    private fun parseStreamingData(jsonObject: JSONObject): Pair<String, String>? {
+    private fun parseStreamingData(jsonObject: JSONObject, videoId: String): Pair<String, String>? {
+        val streamingData = jsonObject.optJSONObject("streamingData") ?: return null
         val qualityMode = getQualityMode()
-        debugLog("--- Parsing streaming data ---")
-        debugLog("User-selected quality mode: $qualityMode")
 
-        return when (qualityMode) {
-            MODE_360_PROGRESSIVE -> {
-                tryProgressiveFormat(jsonObject) ?: buildCustomDashManifest(jsonObject)
+        // 360p progressive first
+        if (qualityMode == MODE_360_PROGRESSIVE) tryProgressiveFormat(streamingData, videoId)?.let { return it }
+
+        // Video-only DASH modes
+        buildCustomDashManifest(streamingData, videoId)?.let { return it }
+
+        // HLS fallback
+        streamingData.optString("hlsManifestUrl").takeIf { it.isNotEmpty() }?.let {
+            return Pair(it, "HLS Live Stream")
+        }
+
+        return null
+    }
+
+    private fun tryProgressiveFormat(streamingData: JSONObject, videoId: String): Pair<String, String>? {
+        val formats = streamingData.optJSONArray("formats") ?: return null
+        for (i in 0 until formats.length()) {
+            val fmt = formats.getJSONObject(i)
+            var url = fmt.optString("url", "")
+            if (url.isEmpty() && fmt.has("signatureCipher")) {
+                val cipher = fmt.getString("signatureCipher")
+                url = kotlinx.coroutines.runBlocking { signatureDecryptor.decryptSignature(cipher, videoId) } ?: ""
             }
-            else -> {
-                buildCustomDashManifest(jsonObject) ?: run {
-                    val hlsUrl = jsonObject.optJSONObject("streamingData")?.optString("hlsManifestUrl", "")
-                    if (!hlsUrl.isNullOrEmpty()) Pair(hlsUrl, "HLS manifest") else null
-                }
+            if (url.isEmpty()) continue
+            val height = fmt.optInt("height", 0)
+            if (height != 360) continue
+            return Pair(url, "360p progressive")
+        }
+        return null
+    }
+
+    private fun buildCustomDashManifest(streamingData: JSONObject, videoId: String): Pair<String, String>? {
+        val qualityMode = getQualityMode()
+        val adaptiveFormats = streamingData.optJSONArray("adaptiveFormats") ?: return null
+
+        val targetHeight = when (qualityMode) {
+            MODE_480_VIDEO_ONLY -> 480
+            MODE_720_VIDEO_ONLY -> 720
+            MODE_1080_VIDEO_ONLY -> 1080
+            MODE_1440_VIDEO_ONLY -> 1440
+            MODE_2160_VIDEO_ONLY -> 2160
+            else -> 720
+        }
+
+        var bestVideo: VideoFormat? = null
+        for (i in 0 until adaptiveFormats.length()) {
+            val fmt = adaptiveFormats.getJSONObject(i)
+            var url = fmt.optString("url", "")
+            if (url.isEmpty() && fmt.has("signatureCipher")) {
+                val cipher = fmt.getString("signatureCipher")
+                url = kotlinx.coroutines.runBlocking { signatureDecryptor.decryptSignature(cipher, videoId) } ?: ""
+            }
+            if (url.isEmpty()) continue
+            val height = fmt.optInt("height", 0)
+            val width = fmt.optInt("width", 0)
+            val mime = fmt.optString("mimeType", "")
+            if (!mime.startsWith("video/") || height == 0 || width == 0) continue
+            if (height == targetHeight) {
+                bestVideo = VideoFormat(url, width, height, fmt.optInt("bitrate", 0), mime, extractCodecs(mime))
+                break
             }
         }
+        return bestVideo?.let { Pair("VIDEO_ONLY|||${it.url}", "${it.height}p video-only (${it.width}x${it.height})") }
     }
 
     private fun extractVideoId(url: String): String? {
@@ -321,8 +312,15 @@ class YouTubeStandaloneExtractor(
         return null
     }
 
-    fun isYouTubeUrl(url: String): Boolean =
-        url.contains("youtube.com", ignoreCase = true) || url.contains("youtu.be", ignoreCase = true)
+    fun isYouTubeUrl(url: String): Boolean {
+        return url.contains("youtube.com", ignoreCase = true) ||
+                url.contains("youtu.be", ignoreCase = true)
+    }
+
+    private fun extractCodecs(mime: String): String {
+        val parts = mime.split(";")
+        return if (parts.size > 1) parts[1].replace("codecs=", "") else ""
+    }
 
     private fun debugLog(message: String) {
         Log.d(TAG, message)
@@ -331,22 +329,6 @@ class YouTubeStandaloneExtractor(
             val file = File(context.getExternalFilesDir(null), "youtube_extraction_log.txt")
             val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(Date())
             file.appendText("[$timestamp] $message\n")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to write debug log", e)
-        }
-    }
-
-    // -------------------------------
-    // The DASH & progressive extraction methods remain the same as before
-    // Only logic in parseStreamingData() now respects user selection
-    // -------------------------------
-    private fun buildCustomDashManifest(streamingData: JSONObject): Pair<String, String>? {
-        // ... existing logic unchanged ...
-        return null
-    }
-
-    private fun tryProgressiveFormat(streamingData: JSONObject): Pair<String, String>? {
-        // ... existing logic unchanged ...
-        return null
+        } catch (_: Exception) {}
     }
 }
