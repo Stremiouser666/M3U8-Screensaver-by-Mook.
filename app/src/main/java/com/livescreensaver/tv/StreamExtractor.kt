@@ -35,6 +35,7 @@ class StreamExtractor(
         .build()
 
     private val standaloneExtractor = YouTubeStandaloneExtractor(context, httpClient)
+    private val embedExtractor = YouTubeEmbedExtractor()
 
     fun needsExtraction(url: String): Boolean {
         return !url.contains(".m3u8") && 
@@ -70,6 +71,22 @@ class StreamExtractor(
         }
     }
 
+    /**
+     * Clears the cached extracted URL so that the next call to extractStreamUrl
+     * (or getCachedUrl) will force a fresh extraction from YouTube/Rutube.
+     *
+     * Call this after a playback failure (e.g. 403) so that retries don't keep
+     * hitting the same broken cached URL.
+     */
+    fun invalidateCache() {
+        cachePrefs.edit()
+            .remove(KEY_EXTRACTED_URL)
+            .remove(KEY_URL_TYPE)
+            .apply()
+
+        FileLogger.log("🗑️ Cache invalidated - next extraction will be fresh", TAG)
+    }
+
     suspend fun extractStreamUrl(sourceUrl: String, forceRefresh: Boolean, cacheExpirationSeconds: Long): String? = withContext(Dispatchers.IO) {
         try {
             FileLogger.log("🎬 Starting extraction for: $sourceUrl", TAG)
@@ -78,6 +95,13 @@ class StreamExtractor(
                 FileLogger.log("📵 No network available - using cached URL", TAG)
                 Log.w(TAG, "📵 No network available - using cached URL")
                 return@withContext cachePrefs.getString(KEY_EXTRACTED_URL, null) ?: sourceUrl
+            }
+
+            // If forceRefresh is set, clear the cache before proceeding so we
+            // don't fall through to the stale cached URL.
+            if (forceRefresh) {
+                FileLogger.log("🔄 forceRefresh=true - invalidating cache before extraction", TAG)
+                invalidateCache()
             }
 
             if (sourceUrl.contains("rutube.ru", ignoreCase = true)) {
@@ -96,23 +120,52 @@ class StreamExtractor(
             FileLogger.log("🎬 Extracting YouTube URL...", TAG)
             Log.d(TAG, "🎬 Extracting YouTube URL...")
 
-            // Try standalone extractor first
+            val qualityMode = getQualityMode()
+            FileLogger.log("Quality mode: $qualityMode", TAG)
+
+            // Route based on quality mode
+            if (qualityMode == "360_progressive") {
+                // Try standalone extractor for 360p progressive (itag=18 with direct URL)
+                FileLogger.log("🔧 Trying standalone extractor for 360p progressive...", TAG)
+                try {
+                    val standaloneResult = standaloneExtractor.extractStream(sourceUrl)
+                    if (standaloneResult.success && standaloneResult.streamUrl != null) {
+                        FileLogger.log("✅ Standalone extractor succeeded: ${standaloneResult.quality}", TAG)
+                        FileLogger.log("📺 Stream URL: ${standaloneResult.streamUrl}", TAG)
+                        Log.d(TAG, "✅ Standalone extractor succeeded: ${standaloneResult.quality}")
+                        saveToCache(sourceUrl, standaloneResult.streamUrl, "youtube")
+                        return@withContext standaloneResult.streamUrl
+                    } else {
+                        FileLogger.log("⚠️ Standalone extractor failed for 360p: ${standaloneResult.errorMessage}", TAG)
+                        Log.w(TAG, "⚠️ Standalone extractor failed for 360p: ${standaloneResult.errorMessage}")
+                        // Fall through to embed extractor
+                    }
+                } catch (e: Exception) {
+                    FileLogger.logError("Standalone extractor exception", e, TAG)
+                    Log.e(TAG, "❌ Standalone extractor exception", e)
+                    // Fall through to embed extractor
+                }
+            }
+
+            // For 480p+ OR if 360p standalone failed, use embed player
+            FileLogger.log("🔧 Using YouTube Embed Player for $qualityMode...", TAG)
+            Log.d(TAG, "🔧 Using YouTube Embed Player for $qualityMode...")
+            
             try {
-                FileLogger.log("🔧 Trying standalone extractor...", TAG)
-                val standaloneResult = standaloneExtractor.extractStream(sourceUrl)
-                if (standaloneResult.success && standaloneResult.streamUrl != null) {
-                    FileLogger.log("✅ Standalone extractor succeeded: ${standaloneResult.quality}", TAG)
-                    FileLogger.log("📺 Stream URL: ${standaloneResult.streamUrl}", TAG)
-                    Log.d(TAG, "✅ Standalone extractor succeeded: ${standaloneResult.quality}")
-                    saveToCache(sourceUrl, standaloneResult.streamUrl, "youtube")
-                    return@withContext standaloneResult.streamUrl
+                val embedResult = embedExtractor.extractStream(sourceUrl)
+                if (embedResult != null) {
+                    FileLogger.log("✅ YouTube Embed extraction succeeded", TAG)
+                    FileLogger.log("📺 Embed URL: ${embedResult.first}", TAG)
+                    Log.d(TAG, "✅ YouTube Embed extraction succeeded")
+                    saveToCache(sourceUrl, embedResult.first, "youtube")
+                    return@withContext embedResult.first
                 } else {
-                    FileLogger.log("⚠️ Standalone extractor failed: ${standaloneResult.errorMessage}", TAG)
-                    Log.w(TAG, "⚠️ Standalone extractor failed: ${standaloneResult.errorMessage}")
+                    FileLogger.log("❌ YouTube Embed extraction failed", TAG)
+                    Log.e(TAG, "❌ YouTube Embed extraction failed")
                 }
             } catch (e: Exception) {
-                FileLogger.logError("Standalone extractor exception", e, TAG)
-                Log.e(TAG, "❌ Standalone extractor exception", e)
+                FileLogger.logError("YouTube Embed extraction exception", e, TAG)
+                Log.e(TAG, "❌ YouTube Embed extraction exception", e)
             }
 
             // Fallback to NewPipe
@@ -324,7 +377,11 @@ class StreamExtractor(
         // Only use cache if quality mode matches
         return if (currentQuality == cachedQuality) {
             val cachedUrl = cachePrefs.getString(KEY_EXTRACTED_URL, null)
-            FileLogger.log("✅ Cache hit - quality mode matches: $currentQuality", TAG)
+            if (cachedUrl != null) {
+                FileLogger.log("✅ Cache hit - quality mode matches: $currentQuality", TAG)
+            } else {
+                FileLogger.log("⚠️ Cache miss - no extracted URL stored (was invalidated?)", TAG)
+            }
             cachedUrl
         } else {
             FileLogger.log("⚠️ Cache miss - quality changed from $cachedQuality to $currentQuality", TAG)
