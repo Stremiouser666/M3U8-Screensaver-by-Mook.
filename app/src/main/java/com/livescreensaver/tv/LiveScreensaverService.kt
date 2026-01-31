@@ -230,7 +230,6 @@ class LiveScreensaverService : DreamService(), SurfaceHolder.Callback {
         youtubePlayerView = YouTubePlayerView(this).apply {
             visibility = android.view.View.GONE  // Hidden by default
         }
-        lifecycle.addObserver(youtubePlayerView!!)  // IMPORTANT for lifecycle management
         containerLayout?.addView(youtubePlayerView, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
