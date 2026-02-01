@@ -12,7 +12,7 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
-class YouTubeStandaloneExtractor(
+class YouTubeStandaloneExtractor {
     private val context: Context,
     httpClient: OkHttpClient? = null
 ) {
